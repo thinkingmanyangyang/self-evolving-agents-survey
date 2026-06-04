@@ -36,7 +36,7 @@
      - **u 工具使用例程**：两类——*Memory Interaction Logic*(决策前查 M,命中 success 就把"被验证有效的动作"作为强提示注入 prompt) + *State Abstraction Logic*(**可进化的 Python 函数 state extractor**,把冗长 game history 解析成简短里程碑串如 "Milestone: Found the map.",每步注入,省得 LLM 重读全史)。
   2. **Actor Agent**：拿固定 χ^(e) 玩完整一局,输出轨迹 τ^(e) 和回报 R^(e)。
   3. **Evolver Agent**(由强 LLM o3 驱动):读 transcript τ^(e) + 父配置 χ^(e),做**整系统进化**,生成一组候选子配置,演化算子四种——**Prompt Mutation**(改写 p,加有效策略/禁失败模式)、**Memory Update**(程序化解析 transcript 填 success/failure 表)、**Hyperparameter Tuning**(如发现卡循环就调高温度)、**Tool-Use Refinement**(改查记忆的时机/强度)。
-  4. **UCB 配置选择**（§4.3，Eq.5）：从{父配置}∪{子配置}里按 `μ̂(χ) + β·sqrt(logN/(1+n(χ)))` 选下一局用的单一配置——**性能项**复用好配置 + **探索 bonus**给试得少的新变异;关键作用是**稳定性安全网**:若新子配置初试侥幸高分后续拉胯,其 μ̂ 下降,UCB 自然"回退"到久经考验的父配置,防止走上坏的进化路径(贪心选择则会被一次幸运高分骗住)。
+  4. **UCB 配置选择**（§4.3，Eq.5）：从{父配置}∪{子配置}里按 \(μ̂(χ) + β·sqrt(logN/(1+n(χ)))\) 选下一局用的单一配置——**性能项**复用好配置 + **探索 bonus**给试得少的新变异;关键作用是**稳定性安全网**:若新子配置初试侥幸高分后续拉胯,其 μ̂ 下降,UCB 自然"回退"到久经考验的父配置,防止走上坏的进化路径(贪心选择则会被一次幸运高分骗住)。
 - **逐组件必要性（消融极充分，Table 3/4/5/6 + Figure 3）**：
   - **w/o Prompt**：掉最多（Detective 0.94→0.52）→ 进化高层策略是主驱动。
   - **w/o UCB**：AUC 掉(0.94→0.68),且 Figure 3 揭示**不稳定**——贪心选择会因 over-commit 高风险变异而灾难性掉分;UCB 提供回退安全网。

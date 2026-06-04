@@ -25,11 +25,11 @@
 
 - **方法流水线（Algorithm 1 + §4，三模块）**：对测试流每个 query x_t：
   1. **检索**：从规则库 R 取回相关规则 r_ret（式8）；
-  2. **Semantic Query Augmentation (SQA, §4.1)**：三个共享同一 LLM 但用不同 system prompt/解码配置的角色——**TEACHER** 贪心(temp 0)对原 query+r_ret 出高置信锚答案 `y^T_t`；**TUTOR** 把 query 改写成 N 个风格不同但语义等价的变体 `{x^(n)_t}=A(x_t)`（模拟输入分布扰动）；**STUDENT**（temp 0.7, top-p 0.9）在每个变体上各采样一个响应 `y^(n)_t`。合并为候选集 `Y_t`；
+  2. **Semantic Query Augmentation (SQA, §4.1)**：三个共享同一 LLM 但用不同 system prompt/解码配置的角色——**TEACHER** 贪心(temp 0)对原 query+r_ret 出高置信锚答案 \(y^T_t\)；**TUTOR** 把 query 改写成 N 个风格不同但语义等价的变体 \({x^(n)_t}=A(x_t)\)（模拟输入分布扰动）；**STUDENT**（temp 0.7, top-p 0.9）在每个变体上各采样一个响应 \(y^(n)_t\)。合并为候选集 `Y_t`；
   3. **Contrastive Experience Distillation (CED, §4.2)**：
      - **一致性切分**：闭式推理任务(CRT，有唯一答案)用**多数投票**切正/负候选——全不同则**跳过**（防传播幻觉）、全同则全为正、否则最大簇为正其余为负、平局看最低 PPL；开放式任务(OET，多合理答案)以 TEACHER 答案为语义参考，**embedding 相似度 top-50% 为正、其余为负**；
-     - **不确定性选样**：正样本 `y^+_t` = Y+ 里**最低 PPL**（最贴模型分布的可靠正例，式4/5）；负样本 `y^-_t` = Y− 里**也取最低 PPL**（专挑模型"自信的错"做 hard negative，式6）；
-     - **对比规则总结**：用 summarizer（同 LLM 不同 prompt）把 (x_t, y^+_t, y^-_t) 的推理差距蒸成 `{r^+_t（该做什么）, r^-_t（要避免什么）}`（式7），append 进 R；
+     - **不确定性选样**：正样本 \(y^+_t\) = Y+ 里**最低 PPL**（最贴模型分布的可靠正例，式4/5）；负样本 \(y^-_t\) = Y− 里**也取最低 PPL**（专挑模型"自信的错"做 hard negative，式6）；
+     - **对比规则总结**：用 summarizer（同 LLM 不同 prompt）把 (x_t, y^+_t, y^-_t) 的推理差距蒸成 \({r^+_t（该做什么）, r^-_t（要避免什么）}\)（式7），append 进 R；
   4. **Contextual Rule Retrieval (CRR, §4.3)**：维护**两个不相交记忆集** R_pos / R_neg，每条 (e, r) 以 e=Embed(r) 为键；新 query 用 Embed(x_t) 余弦相似各取 **Top-K 正 + Top-K 负** 规则，用结构化 prompt（明确标注正/负标题）注入；负规则=剪枝已知错误路径，正规则=导向已验证解法。【原文 Alg.1/§4.1-4.3】
 - **逐组件必要性 / 消融（§5.3）**：
   - **CED 最关键**：去掉它掉最多（GSM8k 87.49→85.97，Finance 0.2863→0.2639），是框架基石。【原文 Table 5】

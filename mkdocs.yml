@@ -1,5 +1,4 @@
 site_name: 自进化 / 持续学习 LLM Agent · 论文精读手册
-# TODO: replace USER/REPO after the GitHub repo URL is known
 site_url: https://thinkingmanyangyang.github.io/self-evolving-agents-survey/
 docs_dir: site_src
 site_dir: site

@@ -28,10 +28,10 @@
 
 - **方法流水线**（§2，配 Figure 2/3，把 GRPO 一一对应改写）：
   1. **初始化**：参数 θ 永久冻结；外部经验库 E ← ∅。
-  2. **Rollout & Reward**：给 query q，并行采样一组 G 个输出 `{o_1..o_G}`，但**策略条件在经验库上** `π_θ(o_i|q,E)`（不是 π_θ(o_i|q)）；用 reward model R 给每个 o_i 打标量 r_i。（与 GRPO 完全一致,只多了 E 这个条件）
-  3. **语义优势计算（核心）**：只对"组内既有明显赢家又有输家"的组生成优势（因为 std(r)=0 时 GRPO 的 Â 也=0）。先让 LLM M 对每个 o_i 单独写摘要 `s_i=M(p_summary,q,o_i)`；再给定全部摘要 + 当前 E,让 M 讲清相对成败原因并抽出一条简洁自然语言经验 `A_text=M(p_extract,q,{s_i},E)`——这条 A_text 就是语义优势,功能等价于 GRPO 的 Â_i。
+  2. **Rollout & Reward**：给 query q，并行采样一组 G 个输出 \({o_1..o_G}\)，但**策略条件在经验库上** \(π_θ(o_i|q,E)\)（不是 π_θ(o_i|q)）；用 reward model R 给每个 o_i 打标量 r_i。（与 GRPO 完全一致,只多了 E 这个条件）
+  3. **语义优势计算（核心）**：只对"组内既有明显赢家又有输家"的组生成优势（因为 std(r)=0 时 GRPO 的 Â 也=0）。先让 LLM M 对每个 o_i 单独写摘要 \(s_i=M(p_summary,q,o_i)\)；再给定全部摘要 + 当前 E,让 M 讲清相对成败原因并抽出一条简洁自然语言经验 \(A_text=M(p_extract,q,{s_i},E)\)——这条 A_text 就是语义优势,功能等价于 GRPO 的 Â_i。
   4. **优化（更新经验库,不更新参数）**：给定全 batch 的 A_text 和现有 E,提示 LLM 生成一组操作 {**Add** 追加 / **Delete** 删低质 / **Modify** 精炼已有 / **Keep** 不变},把 E 更新到 E'。
-  5. **下一轮**：条件策略 `π_θ(y|q,E')` 在后续 batch/epoch 产生"被移向高 reward"的偏移分布——等效一次 GRPO 策略更新,但靠改 context 而非改参数。
+  5. **下一轮**：条件策略 \(π_θ(y|q,E')\) 在后续 batch/epoch 产生"被移向高 reward"的偏移分布——等效一次 GRPO 策略更新,但靠改 context 而非改参数。
 - **逐组件必要性（消融 Table 2，做得相当扎实）**：
   - **group computation（组内对比）**:有消融,group=1 显著掉分 → 相对信号必需。
   - **ground truth reward**:有消融,"w/o ground truths"(只靠组内隐式多数投票/自判别/自反思)仍 80.7/68.9,虽不及完整版但远超基线 → **对无金标域也可用**(鲁棒性卖点)。

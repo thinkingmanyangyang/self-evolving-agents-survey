@@ -4,7 +4,7 @@
 
 ══ 第一层：一眼看懂 [light] ══
 
-- 🟦 **TL;DR**：测试时学习(Test-Time Learning, TTL)= agent 在推理期通过反复与环境交互来迭代变强。它的核心是一个**适应策略(adaptation policy)f**——它**不决定单回合内怎么行动(那是 actor policy),而决定"跨回合之间 actor 该怎么更新"**(`π_{k+1}=f(π_k, H_k)`)。现有方法(Reflexion 等)的 f 都是**人手写死的固定规则**(一句反思 prompt),没人去优化它。本文的主张是:**"怎么从经验中适应"本身就是一种可学习的能力,应该从任务环境里学出来,而不是靠人的直觉去工程化**。于是提出 **META-TTL**:把"发现好的适应策略"建成一个**双层优化(bi-level)**——**内层**跑标准 TTL(衡量某候选适应策略 ϕ 帮 agent 跨回合纠错的效果,用 W-AUC 打分);**外层**在一堆训练任务分布上用**进化搜索(evolutionary search)** 不断进化适应策略 ϕ。关键是:**整个优化在 prompt 空间、免梯度**——产出的 ϕ* 是一段**可移植的自然语言"meta-prompt"**(本质是"用自然语言写的学习算法"),测试时冻结、zero-shot 套到新任务/新 backbone 上。在 Jericho(交互小说)和 WebArena-Lite(网页)上,ID/OOD 都稳超手工 baseline(Jericho ID 平均分 50.4→110.8,~120%;WebArena-Lite ID 0.55→0.63,~15%),且**学到的策略能泛化到训练分布外**。代码:https://github.com/zzzlou/meta-ttl 。【原文 Abstract/§1/§3】
+- 🟦 **TL;DR**：测试时学习(Test-Time Learning, TTL)= agent 在推理期通过反复与环境交互来迭代变强。它的核心是一个**适应策略(adaptation policy)f**——它**不决定单回合内怎么行动(那是 actor policy),而决定"跨回合之间 actor 该怎么更新"**(\(π_{k+1}=f(π_k, H_k)\))。现有方法(Reflexion 等)的 f 都是**人手写死的固定规则**(一句反思 prompt),没人去优化它。本文的主张是:**"怎么从经验中适应"本身就是一种可学习的能力,应该从任务环境里学出来,而不是靠人的直觉去工程化**。于是提出 **META-TTL**:把"发现好的适应策略"建成一个**双层优化(bi-level)**——**内层**跑标准 TTL(衡量某候选适应策略 ϕ 帮 agent 跨回合纠错的效果,用 W-AUC 打分);**外层**在一堆训练任务分布上用**进化搜索(evolutionary search)** 不断进化适应策略 ϕ。关键是:**整个优化在 prompt 空间、免梯度**——产出的 ϕ* 是一段**可移植的自然语言"meta-prompt"**(本质是"用自然语言写的学习算法"),测试时冻结、zero-shot 套到新任务/新 backbone 上。在 Jericho(交互小说)和 WebArena-Lite(网页)上,ID/OOD 都稳超手工 baseline(Jericho ID 平均分 50.4→110.8,~120%;WebArena-Lite ID 0.55→0.63,~15%),且**学到的策略能泛化到训练分布外**。代码:https://github.com/zzzlou/meta-ttl 。【原文 Abstract/§1/§3】
 - **最巧的一步**：**W-AUC(Weighted Area Under the Learning Curve)这个内层评分函数 + GEPA 式 per-task 专家池**(Eq.1 + §3.3)。抽掉"给后期回合更大权重的 W-AUC",外层进化就只会优化"最后一回合分数",学到的可能是"运气好的一次成功"而非"持续变强的适应能力";正是 **W-AUC 显式奖励"学习曲线持续上升"**,才把"适应策略=一个好的学习算法(越学越好)"这件事变成可被进化搜索优化的目标。配套的 **per-task 专家池(像 GEPA)** 则解决"一个 prompt 难同时擅长所有任务"——它**强迫适应策略分解成"任务无关的通用适应招式 + 仅在确认环境时才激活的条件知识库"**,这个 factorization 是泛化的来源。
 
 ══ 第二层：为什么做（写透） ══
@@ -20,11 +20,11 @@
 ══ 第三层：怎么做 + 靠不靠谱 ══
 
 - **方法流水线(双层,对应 Fig 2)**：
-  1. **TTL 形式化(§3.1)**：每个任务实例 g 是有限步 POMDP；一次 **TTL session = K 个连续 episode** `ξ_g=(τ_1,…,τ_K)`,**每 episode 后环境重置**(所以跨回合的进步只能来自 agent 内部的适应,而非环境状态延续)。打分用 **W-AUC**(Eq.1):`Σ_k w_k·J(τ_k) / Σ_k w_k·J_max(g)`,**权重 w_k=k**(后期 episode 权重更大,奖励"持续改进")。
-  2. **两个策略(§3.2)**:**actor policy π**(单 episode 内选动作,**LLM 权重 θ 冻结**)+ **adaptation policy f**(每 episode 后看历史 H_k 产出更新后的 actor)。**只走 prompt 轴**:`π_{k+1}=f(π_k,H_k)` 通过**重写 actor 的 system prompt ρ** 实现(θ 全程冻结,改 ρ 是唯一行为改变机制)→ 免测试时梯度,且把问题变成"可被 meta-training 优化的自然语言生成任务"。
-  3. **Meta-Agent = 可学习的适应策略(§3.2)**:把 f 实例化成**另一个由 meta-prompt ϕ 支配的 LLM**:`ρ_{k+1} ∼ f_ϕ(·|ρ_k, H_k)`(Eq.3)。**ϕ 完全决定适应策略**——meta-agent 关注过去经验的哪些方面、怎么诊断失败、产出什么形式的指导。**可学习的就是 ϕ 本身**。
+  1. **TTL 形式化(§3.1)**：每个任务实例 g 是有限步 POMDP；一次 **TTL session = K 个连续 episode** \(ξ_g=(τ_1,…,τ_K)\),**每 episode 后环境重置**(所以跨回合的进步只能来自 agent 内部的适应,而非环境状态延续)。打分用 **W-AUC**(Eq.1):\(Σ_k w_k·J(τ_k) / Σ_k w_k·J_max(g)\),**权重 w_k=k**(后期 episode 权重更大,奖励"持续改进")。
+  2. **两个策略(§3.2)**:**actor policy π**(单 episode 内选动作,**LLM 权重 θ 冻结**)+ **adaptation policy f**(每 episode 后看历史 H_k 产出更新后的 actor)。**只走 prompt 轴**:\(π_{k+1}=f(π_k,H_k)\) 通过**重写 actor 的 system prompt ρ** 实现(θ 全程冻结,改 ρ 是唯一行为改变机制)→ 免测试时梯度,且把问题变成"可被 meta-training 优化的自然语言生成任务"。
+  3. **Meta-Agent = 可学习的适应策略(§3.2)**:把 f 实例化成**另一个由 meta-prompt ϕ 支配的 LLM**:\(ρ_{k+1} ∼ f_ϕ(·|ρ_k, H_k)\)(Eq.3)。**ϕ 完全决定适应策略**——meta-agent 关注过去经验的哪些方面、怎么诊断失败、产出什么形式的指导。**可学习的就是 ϕ 本身**。
   4. **内层 RUNTTL(Algorithm 1)**:给定 ϕ 和任务 g,跑 K 个 episode:每 episode 用当前 actor prompt ρ_k 执行 → 若未到 K,meta-agent ADAPT(ϕ, 历史) 重写出 ρ_{k+1} → 返回 session ξ。
-  5. **外层进化 meta-training(§3.3, Algorithm 2)**:目标 `ϕ* = argmax_ϕ E_{g∼D_train}[W-AUC(ξ_g^ϕ)]`(Eq.4)。流程:从**专家池**采父代 ϕ_parent + 采训练任务 g → 跑 TTL → **proposer LLM 读 session 反思、提候选 ϕ_candidate** → **本地验证**(同任务上 W-AUC 是否更优,不优则丢)→ **全局验证**(在所有验证任务上跑,对每个它刷新最佳分的任务,替换该任务的专家)→ 预算耗尽后 **SELECTEXPERT**(选平均验证分最高的专家;跨任务 reward 尺度差异大时用 per-task z-score 归一,防易任务主导)。
+  5. **外层进化 meta-training(§3.3, Algorithm 2)**:目标 \(ϕ* = argmax_ϕ E_{g∼D_train}[W-AUC(ξ_g^ϕ)]\)(Eq.4)。流程:从**专家池**采父代 ϕ_parent + 采训练任务 g → 跑 TTL → **proposer LLM 读 session 反思、提候选 ϕ_candidate** → **本地验证**(同任务上 W-AUC 是否更优,不优则丢)→ **全局验证**(在所有验证任务上跑,对每个它刷新最佳分的任务,替换该任务的专家)→ 预算耗尽后 **SELECTEXPERT**(选平均验证分最高的专家;跨任务 reward 尺度差异大时用 per-task z-score 归一,防易任务主导)。
   6. **测试(§3.3)**:ϕ* 冻结,zero-shot 部署到 held-out 任务,meta-agent 照常 episode 间重写 actor prompt,但 ϕ* 不再变。
 - **逐组件必要性**：
   - **Naive baseline(同 actor-meta-agent 架构但 ϕ 未 meta-train)** 是关键对照——它隔离了"meta-training 这一步"的贡献。Tables 1-4 显示 META-TTL 在所有 backbone 上稳超 Naive(Jericho ID GPT-5:Naive 50.4 → META-TTL 110.8)。

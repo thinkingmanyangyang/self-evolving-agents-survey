@@ -31,7 +31,7 @@
 3. **自我修改(Self-modify)**:被选父代**读自己的 benchmark 评测日志 → 提议下一个要实现的 feature → 把该提议当问题陈述交给自己执行 → 在自己代码库里实现它 → 产出新 agent**。(注意:"自我改进"被定义为**一个修改自身代码的编码任务**,不含"开放探索过程"本身——后者是固定外壳,DGM 暂不能改,留待 future work。)
 4. **评测(Evaluate)+ 入档**:新 agent 在编码 benchmark 上量化评测;**只有"能成功编译 + 仍保留改代码能力"的子代才入档**(否则没法继续自改),其余丢弃。
 5. **回到 2 循环**(SWE-bench 跑 80 轮、2 并行;Polyglot 80 轮、4 并行)。**档案里的解可作 stepping stone,在被发现很久之后才促成改进** —— 这正是与 hill-climbing(Robeyns/SICA)的本质区别。
-   - 对齐综述锚 `f(Π,τ,r)=Π′`:DGM 改的是 Π 的 **Γ(workflow)+ W(工具)+ C(prompt)**,**FM 权重 ψ 冻结**(框架设想能改训练脚本/训新 FM,但**本文未做**,因算力 + 复杂度,明列 future work)。
+   - 对齐综述锚 \(f(Π,τ,r)=Π′\):DGM 改的是 Π 的 **Γ(workflow)+ W(工具)+ C(prompt)**,**FM 权重 ψ 冻结**(框架设想能改训练脚本/训新 FM,但**本文未做**,因算力 + 复杂度,明列 future work)。
 
 ### 关键工程:分级评测(staged evaluation)省算力
 - 因全 benchmark 评测太贵:**先 10 题验基本改代码功能 → 过则扩到 50 题 → SWE-bench 若 60 题子集 >40% 且进档案 top-2 则再上 200 题**(更准估真实能力)。用小子集估"大致强弱 + 选 top 候选",对抗 LLM 随机性噪声。**这是"在巩固/晋级前用便宜评测筛探索路径"的范式**,对本项目"巩固前要不要全量验证每条探索路径"直接有用。
@@ -74,7 +74,7 @@
   | 学什么信号 | 改什么 | 何时改 | 免梯度? | 记忆-技能生命周期 | 防遗忘机制 |
   |---|---|---|---|---|---|
   | **外部 reward(编码 benchmark 解题率,分级评测估计)+ 自反思**(父代读自己评测日志提 feature) | **harness/代码库 + 工具 W + workflow Γ + prompt C**;**FM 权重 ψ 冻结**(改训练脚本留 future work) | **离线批量**(inter-task:选父代→自改→评测→入档,80 轮) | **是**(纯 LLM 改代码 + 实测择优,零梯度) | **档案树即记忆**:所有生成的 agent(代码+分数+评测数)写入→**按性能×反比子代数采样检索**→"能编译+保改代码能力"才留(淘汰失格者)→ stepping stone 可延迟数十轮才被复用;技能=自创工具/workflow 持久进子代代码 | **隔离 + 多样性保留(关键!)**:全档案保留(不覆盖旧节点)+ 非零概率采样 = 主动维持多样性,使"暂时差的节点"不被遗忘、可后期反超(Fig.3 的 dip 反超)——**这是"防止过早收敛/遗忘好 stepping stone"的显式机制** |
-- ⑦ **开源代码 + 框架/harness**:**开源,自研框架(无第三方训练框架)**。GitHub: `https://github.com/jennyzzt/dgm`(main 分支 + `best_swe_agent` 分支;已 clone `resource/repos/darwin_godel_machine`,64M,完整无 LFS 大文件,**在 500MB 上限内**)。**使用框架 = 自研 Python(DGM 外环 `DGM_outer.py` + `self_improve_step.py` + `coding_agent.py` + `tools/` + `prompts/`)**;LLM 经 **anthropic(+bedrock)/ openai** 直连(**非 veRL/TRL/OpenRLHF**);**Docker 沙箱**做安全隔离(`Dockerfile`);SWE-bench/Polyglot 评测脚手架内置(`swe_bench/`、`polyglot/`、`test_swebench.py`)。仓库结构与论文 §3/Appendix C 完全对应。**已完整 clone。**【原文 Abstract + 仓库实测】
+- ⑦ **开源代码 + 框架/harness**:**开源,自研框架(无第三方训练框架)**。GitHub: `https://github.com/jennyzzt/dgm`(main 分支 + `best_swe_agent` 分支;已 clone `resource/repos/darwin_godel_machine`,64M,完整无 LFS 大文件,**在 500MB 上限内**)。**使用框架 = 自研 Python(DGM 外环 `DGM_outer.py` + `self_improve_step.py` + `coding_agent.py` + `tools/` + `prompts/`)**;LLM 经 **anthropic(+bedrock)/ openai** 直连(**非 veRL/TRL/OpenRLHF**);**Docker 沙箱**做安全隔离(`Dockerfile`);SWE-bench/Polyglot 评测脚手架内置(\(swe_bench/\)、`polyglot/`、`test_swebench.py`)。仓库结构与论文 §3/Appendix C 完全对应。**已完整 clone。**【原文 Abstract + 仓库实测】
 - 💰 **资源/成本与可扩展性**:**【原文】**Appendix E.1 有 cost estimate;80 轮 × 双 benchmark × 分级评测(最多 200 题)× 强模型(Claude 3.5/3.7、o3-mini),**成本高**(量级未在正文给出具体美元,但分级评测正是为省算力而设)。**可扩展性瓶颈 = 每代都要跑 benchmark 评测**(故用 10→50→200 分级 + 并行 2~4 路)。【推断】比 SICA(\$7k/15轮)规模更大(80 轮),总成本应显著更高。
 - 🎯 **对"探索-巩固"idea 对标** [light]:**最强支撑 + 核心可借组件(本批最相关一篇)**。
   - **支撑**:DGM 用**最干净的消融(Table 1)证明了本项目的核心信念——"保留多样探索路径(档案 + 非零采样)远胜在最优解上贪心巩固(DGM 50% vs Greedy 39.7%)"**。这直接为"探索-巩固"里"为什么不能只沿当前最优路径走、要保留 path 多样性 / path-recovery"提供外部实证。

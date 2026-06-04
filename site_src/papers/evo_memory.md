@@ -22,13 +22,13 @@
 ══ 第三层：怎么做 + 靠不靠谱 ══
 
 - **方法流水线（统一抽象，§3.1）**：agent = 四元组 (F 基座LLM, U 更新管线, R 检索, C 上下文构造)。每步 t：
-  1. **Search**：`R_t = R(M_t, x_t)`（相似度/索引/attention 检索相关记忆）；
-  2. **Synthesis**：把 `R_t` 重组为工作上下文 `C̃_t = C(x_t, R_t)`（结构化 prompt / 选关键条目 / 合并摘要），输出 `ŷ_t = F(C̃_t)`；
-  3. **Evolve**：构造新记忆条目 `m_t = h(x_t, ŷ_t, f_t)`（含反馈 `f_t`，如是否完成），更新 `M_{t+1}=U(M_t, m_t)`（append / 摘要压缩 / 替换）。
+  1. **Search**：\(R_t = R(M_t, x_t)\)（相似度/索引/attention 检索相关记忆）；
+  2. **Synthesis**：把 `R_t` 重组为工作上下文 \(C̃_t = C(x_t, R_t)\)（结构化 prompt / 选关键条目 / 合并摘要），输出 \(ŷ_t = F(C̃_t)\)；
+  3. **Evolve**：构造新记忆条目 \(m_t = h(x_t, ŷ_t, f_t)\)（含反馈 `f_t`，如是否完成），更新 \(M_{t+1}=U(M_t, m_t)\)（append / 摘要压缩 / 替换）。
   - **Dataset Preparation**：把静态数据集变成序列 τ={(x_1,y_1)…(x_T,y_T)}，前面任务为后面提供信息/策略，产出预测轨迹链。【原文 §3.1】
 - **两个实例化方法**：
-  - **ExpRAG（§3.2）**：每条记忆是结构化经验文本 `m_i=S(x_i, ŷ_i, f_i)`；步 t 检索 Top-k 相似经验做 ICL，`ŷ_t=F(x_t, R_t)`，再 append。= 一次性经验复用，无迭代推理/自适应精炼。
-  - **ReMem（§3.3）**：在每步内，状态 `s_t^n=(x_t, M_t, o_t^{1:n-1})`，动作空间 `a_t^n ∈ {Think, Act, Refine}`，构成一个 MDP；一步内可多轮 Think/Refine，选到 Act 即终止该步。Think=内部推理/任务分解；Act=对环境执行或产出可见响应；**Refine=对记忆做 meta-reasoning：利用有用经验、剪枝噪声、重组 M_t**。本质是把 ReAct 的动作空间扩出一个"记忆推理"维度。
+  - **ExpRAG（§3.2）**：每条记忆是结构化经验文本 \(m_i=S(x_i, ŷ_i, f_i)\)；步 t 检索 Top-k 相似经验做 ICL，\(ŷ_t=F(x_t, R_t)\)，再 append。= 一次性经验复用，无迭代推理/自适应精炼。
+  - **ReMem（§3.3）**：在每步内，状态 \(s_t^n=(x_t, M_t, o_t^{1:n-1})\)，动作空间 \(a_t^n ∈ {Think, Act, Refine}\)，构成一个 MDP；一步内可多轮 Think/Refine，选到 Act 即终止该步。Think=内部推理/任务分解；Act=对环境执行或产出可见响应；**Refine=对记忆做 meta-reasoning：利用有用经验、剪枝噪声、重组 M_t**。本质是把 ReAct 的动作空间扩出一个"记忆推理"维度。
 - **逐组件必要性**：
   - Search/Synthesis/Evolve 三件套是所有记忆 agent 的公共骨架，用于统一对比（"isolate the effects of memory design"）。【原文 §4.1.2】
   - Refine：核心新增。RQ4（Table 3）显示**当成功+失败经验都塞进记忆**时，naive 累积会因噪声退化，而 ReMem 靠主动精炼保持稳健（Claude/Gemini 双底座均最佳）。这间接证明 Refine 的必要性，但**论文没有把"去掉 Refine 但保留 Think/Act"作为单独消融行**——它用 ExpRAG/ReAct 作为没有 Refine 的对照。【原文 §4.2.4/Table 3】【推断：因此 Refine 的净贡献只能从 ReMem vs ExpRAG 的差额近似读出，非严格单因子消融】

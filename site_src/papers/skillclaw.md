@@ -32,7 +32,7 @@
 
 - **方法流水线**(§2,Fig.1,Algorithm 1):
   1. **形式化**:共享技能集 S={s₁…s_M},每个技能=可复用过程性 artifact;每次交互产出 session 轨迹 τ(prompt+actions+env/user feedback+final response);目标 S′=Φ(S,T) 用跨用户轨迹集 T 更新 S。
-  2. **结构化会话(保因果)**:每条原始 session 转成 `prompt→action→feedback→…→response` 的结构表示——**因为大多数技能级失败是过程性的**(错参/缺校验/错序),只在中间 action-feedback 轨迹里能诊断,final response 里看不出来。再抽轻量元数据:引用了哪些技能、是否有 tool error、粗粒度质量估计(不强加硬标签)。
+  2. **结构化会话(保因果)**:每条原始 session 转成 \(prompt→action→feedback→…→response\) 的结构表示——**因为大多数技能级失败是过程性的**(错参/缺校验/错序),只在中间 action-feedback 轨迹里能诊断,final response 里看不出来。再抽轻量元数据:引用了哪些技能、是否有 tool error、粗粒度质量估计(不强加硬标签)。
   3. **按技能分组(关键设计)**:G(s)={τ_i | s∈K_i} 收集所有调用过 s 的会话;没用任何技能的进 G(∅)。**这相当于一次自然消融**——同一技能在不同用户/任务/环境下产生不同结果,技能本身是受控变量,直接暴露"哪儿能用、哪儿崩"。两个操作因此可靠:① 评估现有技能在真实多样使用下的表现;② 从 G(∅) 的模式里识别"没有技能覆盖的复发过程"。
   4. **agentic evolver(开放式推理)**:一个 LLM agent + 固定 harness(供给:分组会话证据、当前技能定义、允许的演进动作)。harness 给结构化输入但**不约束推理**。对每个 (s, G(s)):选 **Refine**(据失败模式纠错/增鲁棒)/ **Create**(G(s) 暴露未被覆盖的复发子过程时新建)/ **Skip**(证据不足不动)。对 G(∅):专注发现缺失但可复用的过程,仅当模式"足够具体可教且会复发"才建新技能。**关键约束**:无论哪种动作,evolver 总是**联合看成功+失败会话**——成功会话定义"不可动的不变量(invariants)",失败会话定义"要纠正的目标(targets)",防止"修一个坑、毁掉一个原本有效的过程"。这使演进**累积**(cumulative)。
   5. **夜间验证 + 同步(monotonic gate)**:候选 s′ 在**夜间、真实空闲用户环境**用全工具链(含多步交互+中间反馈)与 s 同条件跑;LLM 按"整体任务成功 + 执行稳定性"比较,胜者 Accept 合并并次日同步给所有 agent,败者只留作候选不部署。**因为只接受改进,部署技能池随时间不退化(monotonic)**。
@@ -50,7 +50,7 @@
   - 数据集:**WildClawBench**(Ding 2026,60 个复杂任务,6 域:Productivity Flow / Code Intelligence / Social Interaction / Search&Retrieval / Creative Synthesis / Safety&Alignment;**全 Linux 容器真实执行**、多模态输入、3–27 指标聚合、**硬约束(关键错误→0 分)**、任务长 15–50 步、依赖外部 API/模型下载)。Backbone:**Qwen3-Max**(执行/演进/验证全用它)。设置:6 天(6 轮)昼夜循环,8 并发用户,共享 best skill pool,Day1=baseline 初始技能集。
   - **支撑核心主张的关键实验**:
     - ① **主表 Table 3(用户侧白天 best-skill 部署视角)**:四类别 Day1→Day6——Social Interaction 54.01→60.34(+6.33,+11.72%);Search&Retrieval 22.73→34.55(+11.82,**+52%**);Creative Synthesis 11.57→21.80(+10.23,**+88.41%**);Safety&Alignment 24.00→32.00(+8.00,+33.33%)。**模式**:先解主瓶颈、再围绕 best pool 稳定(非每日抖动)。
-    - ② **逐夜演进-验证决策表 Table 4–7**:暴露真实接受率很低——Social 6 夜只有 Night1 的 `03_task6` 被 Accept(从描述性指令改写成显式有序过程→大涨);Search 接受 `validate-file-existence`(Night1)等;Creative 只接受 Night1 的 `validate-tmp-workspace-inputs`;Safety Night1–4 连续接受 git fallback/clone 类。**说明大量候选被验证 gate 拒掉**(monotonic 守门真在起作用)。
+    - ② **逐夜演进-验证决策表 Table 4–7**:暴露真实接受率很低——Social 6 夜只有 Night1 的 \(03_task6\) 被 Accept(从描述性指令改写成显式有序过程→大涨);Search 接受 `validate-file-existence`(Night1)等;Creative 只接受 Night1 的 `validate-tmp-workspace-inputs`;Safety Night1–4 连续接受 git fallback/clone 类。**说明大量候选被验证 gate 拒掉**(monotonic 守门真在起作用)。
     - ③ **受控验证 Table 8(Skill Evolve Lite,3 个自定义 query)**:单轮演进平均 +42.1%;save report 28.3→100.0(+71.7,缺输出路径过程被补齐),basic extraction +47.8,但 deadline parsing 仅 +6.9(**依赖细致推理的任务对过程性技能更新不敏感**)——这是个诚实的负向信号,给出了"技能演进在哪类失败上有效(过程性) / 在哪类无效(推理性)"的机制级解释。
     - ④ **5 个 case study(Fig.2–5)**:Slack 端口纠错+预览过滤+正确输出路径;ICCV first-affiliation 严格定义+噪声重核;SAM3 环境感知+CPU monkey-patch;手机多约束选型校准化决策。质性展示"技能演进重构出更可靠流水线"。
   - **baseline 公平性 / 局限**【推断+原文】:**没有外部方法 baseline 对比**——Table 3 的 baseline 就是它自己的 Day1。即无 ExpeL/AgentKB/MemSkill 等同台对比。作者**自己明说**(§3.3)"this study represents a small-scale test...limited user queries, feedback signals, and interaction depth"。所有评测/演进/验证都用同一个 Qwen3-Max,可能存在评判偏好自家技能风格的风险。

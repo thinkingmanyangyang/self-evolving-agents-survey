@@ -95,7 +95,7 @@
 
 ### 🖼 关键图 top-2
 ![图1-ICRL prompting 概念:context 堆叠各轮(动作,reward),LLM 生成→reward(自评或环境)→拼回 context](../figures/icrl_prompting_fig1.png)
-- 这是**原文 Figure 1**(方法主图)。Context Window 里逐行堆叠 episode 1..k,每行是 `A R A R A R`(动作-reward 交替)+ 底部 `s_task + s_ICRL`;LLM 据此生成动作 → 经 **Reward Function(LLM 自评 OR 环境 Env)** 打分 → 第 k+1 轮把 reward 拼接回 context。**选它**:一图说清整个"极简、纯 context、reward 唯一信号"的闭环,是抽取 6 轴(学什么信号/改什么/何时改/生命周期)的唯一依据图,也直观呈现"为什么这叫 in-context RL"。
+- 这是**原文 Figure 1**(方法主图)。Context Window 里逐行堆叠 episode 1..k,每行是 `A R A R A R`(动作-reward 交替)+ 底部 \(s_task + s_ICRL\);LLM 据此生成动作 → 经 **Reward Function(LLM 自评 OR 环境 Env)** 打分 → 第 k+1 轮把 reward 拼接回 context。**选它**:一图说清整个"极简、纯 context、reward 唯一信号"的闭环,是抽取 6 轴(学什么信号/改什么/何时改/生命周期)的唯一依据图,也直观呈现"为什么这叫 in-context RL"。
 
 ![图2-三任务学习曲线:ICRL随trial持续上升(带探索-利用振荡),Self-Refine/Reflexion/Best-of-N 早早plateau](../figures/icrl_prompting_fig2.png)
 - 这是**原文 Figure 2**(核心结果图)。三联:Game of 24 成功率 / 创意写作 coherence reward / ScienceWorld return,横轴 Trial Number。**ICRL Preset/Autonomous(我方)曲线持续上升**,且 Game24 的成功率呈现明显**振荡=交替探索/利用**(RL 行为证据);Best-of-N/Reflexion/Self-Refine 早早 plateau 甚至下滑。**选它**:既给出"碾压基线"的硬结果,又用曲线形状(单调上升 + 探索-利用振荡)作为"这真是 RL"的行为证据,是理解核心主张的最关键图。

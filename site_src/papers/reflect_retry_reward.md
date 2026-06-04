@@ -33,7 +33,7 @@
   2. **生成自反思**:失败则用固定 prompt("你做错了,反思哪里错了、写一段短说明帮你下次做好")让模型产出一段自反思 commentary。【原文 §3, 附录A】
   3. **带反思重做**:把自反思放进对话历史,模型**第二次**尝试同一任务。仍失败→不动(说明反思没用);成功→进入奖励。【原文 §3】
   4. **GRPO 只奖励反思 token**:第二次成功时,用 GRPO **仅对自反思阶段生成的 token 计入 advantage,其余(含答案)置 0**——逼模型学"通用的会反思"而非"记住这题答案"。【原文 §3】
-  5. **(工程)失败数据集 + multi-step GRPO**:为效率,先对每 query 采样最多 64 次、只留失败的构成"失败数据集"(用 vLLM + prefix caching 加速 rejection sampling);在 **TRL 的 GRPOTrainer** 上扩 `_prepare_inputs` 调一个 `second_step` 做第二次生成、并用 mask 把奖励限定到反思 token。这套 multi-step 设计可接任意复杂下游 reward。【原文 §4.3, §4.4】
+  5. **(工程)失败数据集 + multi-step GRPO**:为效率,先对每 query 采样最多 64 次、只留失败的构成"失败数据集"(用 vLLM + prefix caching 加速 rejection sampling);在 **TRL 的 GRPOTrainer** 上扩 \(_prepare_inputs\) 调一个 `second_step` 做第二次生成、并用 mask 把奖励限定到反思 token。这套 multi-step 设计可接任意复杂下游 reward。【原文 §4.3, §4.4】
 
 - **逐组件必要性**:
   - *"只奖励反思 token"*:**无直接消融对照**(没做"奖励全部 token vs 只奖反思"的 A/B);其必要性靠**论证 + Figure 2 反思质量变化 + "首答也变强"的副作用**间接支撑。属未用消融硬证的设计选择。【推断:依据=正文无该对照实验,仅 §3 论证 + §5 现象】
@@ -64,7 +64,7 @@
 - **祛魅总结**:
   - **真贡献(硬货)**:(a)**"只奖励 self-reflection token、不奖励答案"的段级信用分配**是干净、可复现的新点子,且只需二值验证器、不靠 teacher;(b)**Table 3 防遗忘 + Table 1/2 小模型反超大模型**是有分量的实证;(c)**反思变短更优(Figure 2)**是一个反直觉、值得后续研究的现象。
   - **包装/可能高估**:"task-agnostic / self-improving"是核心卖点,但**全篇没做一次跨任务迁移实验**(训函数调用→测数学,或反之),"任务无关"目前只是机制层面的论证 + 防遗忘的旁证,**未被正面证明**(作者诚实地列为 future work)。"as high as 34.7%"等峰值数字来自最弱基座/最低起点,平均增益(9%/16%)更实在。【推断:依据=Limitations 自承未测迁移 + Table 1/2 峰值来自低基线】
-  - **可能低估**:multi-step GRPO 的工程实现(扩 GRPOTrainer 的 `_prepare_inputs`/`second_step`、用 mask 限定奖励 token)其实是个**可复用的"多步 RL + 段级 reward"脚手架**,论文当工程细节一笔带过,对想做"分步/关键步奖励"的人价值不小。【推断:依据=§4.4】
+  - **可能低估**:multi-step GRPO 的工程实现(扩 GRPOTrainer 的 \(_prepare_inputs\)/`second_step`、用 mask 限定奖励 token)其实是个**可复用的"多步 RL + 段级 reward"脚手架**,论文当工程细节一笔带过,对想做"分步/关键步奖励"的人价值不小。【推断:依据=§4.4】
 
 ══ 结构化抽取 ══
 
@@ -74,13 +74,13 @@
 |---|---|---|---|---|---|
 | **环境/验证器的二值 reward**(对/错)+ **自反思**(模型自己写、自己用);**纯 bootstrap 自身输出,无外部 teacher** | **参数**(GRPO 微调;**奖励仅作用于 self-reflection token**,答案 token advantage 置 0) | **离线批量**(在"失败数据集"上 GRPO 训到收敛);信号在 **per-episode**(每个失败样本走 reflect→retry) | **否**(GRPO 梯度训练) | 无显式记忆/技能库;"反思能力"一次性蒸馏进参数 → 推理时按需(失败才)生成反思 → 无检索/无淘汰/无共享 | **经验证有效的"低遗忘"**:因只在失败样本训、且优化任务无关的反思,Table 3 显示 MMLU/GSM8K/HellaSwag/MATH 训练前后 <1% 退化。**机制上靠"任务无关 + 仅纠错例"隐式防遗忘**,非显式正则/隔离/merging【原文 §5.2, Table 3】 |
 
-- ⑦ **开源代码 + 框架/harness**:**未开源(未找到作者自己的代码/权重发布)**——全文仅出现两个 github:**huggingface/trl**(所用框架)与 **Jiayi-Pan/TinyZero**(Countdown 数据集来源),**无 "our code is available" 或 Writer 自己的仓库/HF 模型链接**(已全文检索确认)。训练 **framework = TRL(Transformer Reinforcement Learning, von Werra et al. 2020)**,明确**扩展其 `GRPOTrainer`**:改 `_prepare_inputs` 调自写 `second_step` 实现 multi-step GRPO 并用 mask 把奖励限定到反思 token;**rejection sampling 用 vLLM + prefix caching**;4-8×H100;GRPO 超参沿用 DeepSeek 实现(KL=0.001、lr=5e-7、cosine、warmup 0.03)。【原文 §4.4, 附录;代码缺失为全文检索结论】
+- ⑦ **开源代码 + 框架/harness**:**未开源(未找到作者自己的代码/权重发布)**——全文仅出现两个 github:**huggingface/trl**(所用框架)与 **Jiayi-Pan/TinyZero**(Countdown 数据集来源),**无 "our code is available" 或 Writer 自己的仓库/HF 模型链接**(已全文检索确认)。训练 **framework = TRL(Transformer Reinforcement Learning, von Werra et al. 2020)**,明确**扩展其 `GRPOTrainer`**:改 \(_prepare_inputs\) 调自写 `second_step` 实现 multi-step GRPO 并用 mask 把奖励限定到反思 token;**rejection sampling 用 vLLM + prefix caching**;4-8×H100;GRPO 超参沿用 DeepSeek 实现(KL=0.001、lr=5e-7、cosine、warmup 0.03)。【原文 §4.4, 附录;代码缺失为全文检索结论】
 
 - 💰 **资源/成本与可扩展性**:训练**相当省**——多数模型远未跑满:Llama-3.1-8B 函数调用**仅 100 步、<2000 条 unique query 即收敛**;函数调用实验平均 <25000 query,数学平均 ~15000 problem;上限 1750 步、effective batch 256。硬件 4-8×H100。**核心成本优势**:无需任务数据、无需大 teacher 造数据、只需二值验证器;且因"只在失败样本训",样本利用精准。**可扩展性局限**:受 GRPO 已知瓶颈,**只验到 8B**,更大模型未试。推理侧:训练后**首答即变强**,故部署时不必每次都跑两遍/生成反思,test-time 开销可控。【原文 §4.4, §5】
 
 - 🎯 **对"探索-巩固"idea 对标**:**强支撑 + 直接可借的核心组件**。
   - **支撑**:它是"探索(失败→自反思→重试翻盘)→巩固(用 RL 把成功的反思固化进参数)"的**纯 RL 训练侧**范例;且与本项目"**从错误路径学纠偏 / path-recovery**"理念高度一致(只从"失败翻盘成功"的样本学)。
-  - **直接可借组件**:① **"段级信用分配:只奖励某一段 token(反思),其余 advantage 置 0"**——这正是 TSRD 想要的"**只奖励 path-recovery 那一段 / 只在关键步接管处计入梯度**"的现成 GRPO 实现模板;与项目 reusable_techniques 里"sparse_critical / forward-hard-backward-soft"在"把学习信号精确限定到关键 token 子集"上**同构**;② **multi-step GRPO 脚手架**(扩 `GRPOTrainer._prepare_inputs` + `second_step` + mask)——可直接改造成"MTP 预测关键步→在该步插入 recovery 生成→只奖励 recovery token"的训练循环;③ **"只在失败样本上训→保证只提升不损害"**——可作 TSRD 选择"哪些轨迹/哪些步进入 path-recovery 训练"的筛选原则;④ **防遗忘的"任务无关 + 仅纠错例"思路**(Table 3)——为"巩固新纠偏能力而不忘旧"提供一个轻量、无需显式正则的经验性方案。
+  - **直接可借组件**:① **"段级信用分配:只奖励某一段 token(反思),其余 advantage 置 0"**——这正是 TSRD 想要的"**只奖励 path-recovery 那一段 / 只在关键步接管处计入梯度**"的现成 GRPO 实现模板;与项目 reusable_techniques 里"sparse_critical / forward-hard-backward-soft"在"把学习信号精确限定到关键 token 子集"上**同构**;② **multi-step GRPO 脚手架**(扩 \(GRPOTrainer._prepare_inputs\) + `second_step` + mask)——可直接改造成"MTP 预测关键步→在该步插入 recovery 生成→只奖励 recovery token"的训练循环;③ **"只在失败样本上训→保证只提升不损害"**——可作 TSRD 选择"哪些轨迹/哪些步进入 path-recovery 训练"的筛选原则;④ **防遗忘的"任务无关 + 仅纠错例"思路**(Table 3)——为"巩固新纠偏能力而不忘旧"提供一个轻量、无需显式正则的经验性方案。
   - **缺口/区别**:它**奖励对象是"整段自反思文本"**,粒度比本项目设想的"MTP 定位的单个关键步/单点接管"粗;且**不用 MTP/foresight**——失败信号来自"重试后是否成功"的事后验证,而非"前瞻预测偏差"(SAMULE/KnowSelf 各有一个前瞻味更浓的触发器,本文更朴素);跨任务迁移(=真正的任务无关)它**没证**。TSRD 若要更细的"关键步级"信用,需把本文的"反思段 mask"换成"MTP 探针选出的关键 token 子集"。【推断:依据=§3/§4.4 + 项目 project_core_idea/reusable_techniques(sparse_critical, forward-hard-backward-soft)】
 
 - 🔭 **开放问题/未来方向**:

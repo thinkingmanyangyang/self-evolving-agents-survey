@@ -30,13 +30,13 @@
 ══ 第三层:怎么做 + 靠不靠谱 ══
 
 - **方法流水线(两级联模块 + 三先验,Alg.1)**:
-  1. **(模块A.1)Local Message Partitioning**:消息进缓冲区 B,攒满观察窗口 w(默认 20 条)就让 LLM(prompt $P_{par}$,高敏感度检测话题/意图/时间/结构/相关性切换)把这 w 条切成不重叠、覆盖全集的若干 raw episode;然后清空 B。【原文 §3.2.1, D.1.1】
-  2. **(模块A.2)Narrative Episode Generation**:每个 raw episode $P_j$ 经 LLM($P_{nar}$)转成**第三人称叙事 $N_j$ + episodic cue $c_j$**(标题摘要),并**把相对时间("昨天")显式换算成绝对日期写进叙事**;算 embedding $v_j=f_{emb}(c_j\|N_j)$;存为 $M_j=(c_j,N_j,P_j,v_j)$。支持双模检索(返 N 求效率 / 返 raw P 求精度)。【原文 §3.2.2, D.1.2】
-  3. **(模块A.3)Associative Memory Integration**:新 episode 对已有 episodic 库检索 top-$K_e$ 候选,让 LLM($P_{sel}$)判断是否有"episodic 连续性";有则合并(supersede 旧项)、无则插入——**修复被窗口切断的同一事件**。【原文 §3.2.3】
-  4. **(模块B.1)Anticipatory Schema Synthesis**:把下游 management M 当抽象 context provider,用通用接口 Evoke 取与新 episode 相关的已知上下文 $S_{in}$(原生实现=阈值过滤的相似检索);**只给 cue $c_{in}$ + 已知上下文 $S_{in}$**(不给原文),让 LLM($P_{ant}$)**预测这个 episode 实际讲了什么**($\hat P_{in}$)——明确指示"预测 SUBSTANCE 不是 STYLE"。【原文 §3.3.1, D.1.5】
-  5. **(模块B.2)Prediction Error Distillation**:让 LLM($P_{dis}$)对比"实际 $P_{in}$ vs 预测 $\hat P_{in}$",**只抽取实际里有、预测里缺/错的事实性知识** $K_{in}$(过滤情绪/寒暄/已被预测中的)。【原文 §3.3.2, D.1.6】
-  6. **(模块B.3)Agnostic Knowledge Consolidation**:每条 insight 检索语义库 top-$K_m$,让 LLM($P_{con}$,"保守维护者、默认 NEW")判 $\delta\in\{new,merge,conflict\}$——new 插入 / merge 合成统一表述并 supersede / conflict 删旧换新(失效旧知识)。【原文 §3.3.3, D.1.7】
-  7. **(推理)Response Generation**:query 并行检索 top-k episodic($N$,top-2 额外带 raw $P$)+ top-m 语义(m=2k),拼接喂 LLM($P_{ans}$)生成答案。【原文 §3.4】
+  1. **(模块A.1)Local Message Partitioning**:消息进缓冲区 B,攒满观察窗口 w(默认 20 条)就让 LLM(prompt \(P_{par}\),高敏感度检测话题/意图/时间/结构/相关性切换)把这 w 条切成不重叠、覆盖全集的若干 raw episode;然后清空 B。【原文 §3.2.1, D.1.1】
+  2. **(模块A.2)Narrative Episode Generation**:每个 raw episode $P_j$ 经 LLM(\(P_{nar}\))转成**第三人称叙事 $N_j$ + episodic cue $c_j$**(标题摘要),并**把相对时间("昨天")显式换算成绝对日期写进叙事**;算 embedding \(v_j=f_{emb}(c_j\|N_j)\);存为 \(M_j=(c_j,N_j,P_j,v_j)\)。支持双模检索(返 N 求效率 / 返 raw P 求精度)。【原文 §3.2.2, D.1.2】
+  3. **(模块A.3)Associative Memory Integration**:新 episode 对已有 episodic 库检索 top-$K_e$ 候选,让 LLM(\(P_{sel}\))判断是否有"episodic 连续性";有则合并(supersede 旧项)、无则插入——**修复被窗口切断的同一事件**。【原文 §3.2.3】
+  4. **(模块B.1)Anticipatory Schema Synthesis**:把下游 management M 当抽象 context provider,用通用接口 Evoke 取与新 episode 相关的已知上下文 \(S_{in}\)(原生实现=阈值过滤的相似检索);**只给 cue \(c_{in}\) + 已知上下文 \(S_{in}\)**(不给原文),让 LLM(\(P_{ant}\))**预测这个 episode 实际讲了什么**(\(\hat P_{in}\))——明确指示"预测 SUBSTANCE 不是 STYLE"。【原文 §3.3.1, D.1.5】
+  5. **(模块B.2)Prediction Error Distillation**:让 LLM(\(P_{dis}\))对比"实际 \(P_{in}\) vs 预测 \(\hat P_{in}\)",**只抽取实际里有、预测里缺/错的事实性知识** \(K_{in}\)(过滤情绪/寒暄/已被预测中的)。【原文 §3.3.2, D.1.6】
+  6. **(模块B.3)Agnostic Knowledge Consolidation**:每条 insight 检索语义库 top-$K_m$,让 LLM(\(P_{con}\),"保守维护者、默认 NEW")判 \(\delta\in\{new,merge,conflict\}\)——new 插入 / merge 合成统一表述并 supersede / conflict 删旧换新(失效旧知识)。【原文 §3.3.3, D.1.7】
+  7. **(推理)Response Generation**:query 并行检索 top-k episodic($N$,top-2 额外带 raw $P$)+ top-m 语义(m=2k),拼接喂 LLM(\(P_{ans}\))生成答案。【原文 §3.4】
 
 - **逐组件必要性**(消融 Table 5/10,做得相当扎实):
   - *预测误差蒸馏(核心)*:NEMORI-s(直接蒸馏)对比 → 全面落后,Temporal 子类暴跌(见"最巧一步")。✔强消融。
@@ -46,10 +46,10 @@
   - *观察窗口 w(5–40)*:性能稳定(±1%),对该超参鲁棒(Fig.2/Table 11)。✔有消融。
   - *检索策略 index/retrieve(N vs P)*:叙事 embedding 一致优于 raw embedding(76.9 vs 76.4),支撑 representation prior(Table 6/13)。✔有消融。
 
-- **关键机制直觉**:核心不是公式而是**"预测误差=信息增益的代理"**这一认知。$\hat P_{in}=f_{LLM}(\text{cue},\text{已知})$ 是"系统拿现有知识能猜到的部分";$P_{in}\ominus\hat P_{in}$(让 LLM 取差)就是**Shannon 意义上的 surprise / 新信息**——可预测=熵低=冗余,该丢;不可预测=高 surprise=该记。这把"重要性"从主观标准变成"相对现有知识库的条件信息量",且**只存增量**故天然抗膨胀。叙事改写则把"回忆=对事件的 allocentric 重构(推理)"前置到记忆形成阶段,**把推理负担从答题时挪到建库时**(作者称 reasoning during memory formation),这解释了为何 Temporal Reasoning 涨得最多(日期在建库时已被换算成绝对时间)。【原文 §3.1, §3.3, B.1】
+- **关键机制直觉**:核心不是公式而是**"预测误差=信息增益的代理"**这一认知。\(\hat P_{in}=f_{LLM}(\text{cue},\text{已知})\) 是"系统拿现有知识能猜到的部分";\(P_{in}\ominus\hat P_{in}\)(让 LLM 取差)就是**Shannon 意义上的 surprise / 新信息**——可预测=熵低=冗余,该丢;不可预测=高 surprise=该记。这把"重要性"从主观标准变成"相对现有知识库的条件信息量",且**只存增量**故天然抗膨胀。叙事改写则把"回忆=对事件的 allocentric 重构(推理)"前置到记忆形成阶段,**把推理负担从答题时挪到建库时**(作者称 reasoning during memory formation),这解释了为何 Temporal Reasoning 涨得最多(日期在建库时已被换算成绝对时间)。【原文 §3.1, §3.3, B.1】
 
 - **实验与证据**:
-  - 数据集:**LoCoMo**(10 段对话、均 24K token、1540 题、4 类推理)+ **LongMemEvalS**(500 会话、均 105K token,更长更真实,测 scalability)。Backbone/judge:gpt-4o-mini、gpt-4.1-mini(NEMORI 内部模型+答题模型都用它们,embedding 用 text-embedding-3-small)。Baseline 7 个:Full Context / RAG-4096 / LangMem / Zep / Mem0 / A-MEM / MemoryOS。指标:LLM-judge 分(主)+ F1 + BLEU-1,归一到 0–100。超参:τ=0.70,$K_e=K_m=5$,$K_s=10$,k=10(m=20),r=2(top-2 episode 带原文)。【原文 §4.1】
+  - 数据集:**LoCoMo**(10 段对话、均 24K token、1540 题、4 类推理)+ **LongMemEvalS**(500 会话、均 105K token,更长更真实,测 scalability)。Backbone/judge:gpt-4o-mini、gpt-4.1-mini(NEMORI 内部模型+答题模型都用它们,embedding 用 text-embedding-3-small)。Baseline 7 个:Full Context / RAG-4096 / LangMem / Zep / Mem0 / A-MEM / MemoryOS。指标:LLM-judge 分(主)+ F1 + BLEU-1,归一到 0–100。超参:τ=0.70,\(K_e=K_m=5\),\(K_s=10\),k=10(m=20),r=2(top-2 episode 带原文)。【原文 §4.1】
   - **支撑核心主张的关键实验**(Table 2):NEMORI 平均 LLM 分 gpt-4.1-mini 80.8(超最强 baseline LangMem 73.4 的 +10.1%)、gpt-4o-mini 73.0(超 Mem0 61.3 的 +19.1%),且**两个模型上都略超 Full Context**(80.8 vs 80.6 / 73.0 vs 72.3)——说明它确实挑出了有用经验、还顺手降噪;**Temporal Reasoning 最突出**(77.3,+15.9% over A-MEM)。【原文 §4.2】
   - **最有说服力的两组**(也是真正的硬货):
     ① **成本**(Table 3/4):建库阶段 LLM 调用 −59.5%、总 token −38.7%(比 Mem0/A-MEM 等省一半);答题阶段平均 **2745 token(比 Full Context 23653 省 88%)、端到端延迟 −47%(3053ms vs 5806ms)**,而分还更高——"复杂 pipeline 反而更省"的反直觉结果,作者归因于**以 episode 而非 message 为处理单元**(避免 message-wise 处理的成本陷阱)。【原文 §4.3, Table 9】

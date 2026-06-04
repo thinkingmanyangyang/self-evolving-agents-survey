@@ -15,10 +15,10 @@
 
 ══ 第三层:怎么做 + 靠不靠谱 ══
 - **方法流水线**(§4 Fig 2,三组件 + 交替优化):
-  · **问题形式化(§3 Eq 2)**:`max_{θ,A,I} E[Perf(x;πθ,A)] − Ω(A)  s.t.  Σ_{s∈I} m(s) ≤ Cθ, A∩I=∅`。A=活跃外置集、I=已内化潜在集、U=非活跃集;m(s)=内化技能 s 的有效参数记忆代价、Cθ=模型有限知识容量、Ω=外部支持代价(黑盒单调集函数,加任一非活跃技能边际代价>0)。Ω 的单调性刻画"多活跃技能=更多 context/routing 开销",有限容量约束阻止"假设所有技能都能塞进参数"。精确在线优化此混合空间不可解,故 SLIM 用三个可解近似:
-  · **① 分层技能检索(§4.1)**:把全局技能选择降成任务条件候选选择——general skill 池 + task-specific 池 Sk;对任务 x(类型 k),用 Qwen3-Embedding-0.6B 算 cos 相似度,取 `Qt(x)=TopK(s∈Ak_t: cos(ex,es)≥τemb, K)`(τemb=0.45, K=3);最终条件策略 `πθ(at|ht, Agen_t ∪ Qt(x))`。检索限制在**当前活跃集**内,故生命周期决策直接影响后续 rollout 可见的外置能力。
-  · **② 边际外部贡献估计(§4.2,MEC)**:`∆t(s)=Perf(Vt(s);At) − Perf(Vt(s);At\{s})`(Vt(s)=当前活跃集下 rollout 用到 s 的验证任务子集),即**留一技能验证**;用 EMA 平滑 `¯∆t(s)=α∆t(s)+(1−α)¯∆t−1(s)` 降审计噪声。正值=策略仍受益于把该能力留外置,近零/负=可能已被吸收/冗余/有害。强调这是**局部估计**(条件于当前策略/活跃集/routing),非对所有子集的全局归因。
-  · **③ 生命周期管理 + 策略优化(§4.3,交替优化)**:每 audit cycle 分两步——**(i) GRPO 策略更新(活跃集固定)**:Ω(At) 为常数,只改策略;**(ii) 技能生命周期管理(策略固定)**:限制为单技能 move(绝对代价差有界),按 ¯∆ 定状态转移规则——**Retain**:`¯∆t(s)≥τkeep`(价值明显>外部代价)→ 留;**Retire**:`¯∆t(s)<τretire 且 累计曝光 ut(s)≥nmin 且 低贡献连续 ℓt(s)≥p`(充分曝光后贡献可忽略才退,保护低频技能不被过早删)→ 删;**Expand**:`Perf(Vt(s);At)<τexpand 且 路由失败数 Nt(s)≥nexpand 且 ¯∆t(s)<τkeep`(当前技能持续覆盖不了其路由任务区)→ 加新技能 snew。τretire≤¯∆<τkeep 时不动(留到后续审计有更强证据)。
+  · **问题形式化(§3 Eq 2)**:\(max_{θ,A,I} E[Perf(x;πθ,A)] − Ω(A)  s.t.  Σ_{s∈I} m(s) ≤ Cθ, A∩I=∅\)。A=活跃外置集、I=已内化潜在集、U=非活跃集;m(s)=内化技能 s 的有效参数记忆代价、Cθ=模型有限知识容量、Ω=外部支持代价(黑盒单调集函数,加任一非活跃技能边际代价>0)。Ω 的单调性刻画"多活跃技能=更多 context/routing 开销",有限容量约束阻止"假设所有技能都能塞进参数"。精确在线优化此混合空间不可解,故 SLIM 用三个可解近似:
+  · **① 分层技能检索(§4.1)**:把全局技能选择降成任务条件候选选择——general skill 池 + task-specific 池 Sk;对任务 x(类型 k),用 Qwen3-Embedding-0.6B 算 cos 相似度,取 \(Qt(x)=TopK(s∈Ak_t: cos(ex,es)≥τemb, K)\)(τemb=0.45, K=3);最终条件策略 \(πθ(at|ht, Agen_t ∪ Qt(x))\)。检索限制在**当前活跃集**内,故生命周期决策直接影响后续 rollout 可见的外置能力。
+  · **② 边际外部贡献估计(§4.2,MEC)**:\(∆t(s)=Perf(Vt(s);At) − Perf(Vt(s);At\{s})\)(Vt(s)=当前活跃集下 rollout 用到 s 的验证任务子集),即**留一技能验证**;用 EMA 平滑 \(¯∆t(s)=α∆t(s)+(1−α)¯∆t−1(s)\) 降审计噪声。正值=策略仍受益于把该能力留外置,近零/负=可能已被吸收/冗余/有害。强调这是**局部估计**(条件于当前策略/活跃集/routing),非对所有子集的全局归因。
+  · **③ 生命周期管理 + 策略优化(§4.3,交替优化)**:每 audit cycle 分两步——**(i) GRPO 策略更新(活跃集固定)**:Ω(At) 为常数,只改策略;**(ii) 技能生命周期管理(策略固定)**:限制为单技能 move(绝对代价差有界),按 ¯∆ 定状态转移规则——**Retain**:\(¯∆t(s)≥τkeep\)(价值明显>外部代价)→ 留;**Retire**:\(¯∆t(s)<τretire 且 累计曝光 ut(s)≥nmin 且 低贡献连续 ℓt(s)≥p\)(充分曝光后贡献可忽略才退,保护低频技能不被过早删)→ 删;**Expand**:\(Perf(Vt(s);At)<τexpand 且 路由失败数 Nt(s)≥nexpand 且 ¯∆t(s)<τkeep\)(当前技能持续覆盖不了其路由任务区)→ 加新技能 snew。τretire≤¯∆<τkeep 时不动(留到后续审计有更强证据)。
   · **实现(§5 Alg 1)**:audit 每 d=10 GRPO 步一次,每次只审计 top-M=4 个最近高路由使用的技能(控审计开销);Expand 用路由失败桶 + Anthropic-style skill-creator workflow 造 standalone task-specific SKILL.md;主 SLIM run **关掉 policy-side KL loss 和 KL-in-reward**;无 cold-start SFT/warmup。
 - **逐组件必要性(有完整消融 §6.4 Table 2)**:
   · **Retirement(w/o Retirement)**:ALFWorld 87.5→**73.4**(扩而不删→退化成 SkillRL 式持久增强,堆出 routing/context 开销)。

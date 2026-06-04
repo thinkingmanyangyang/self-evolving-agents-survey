@@ -4,7 +4,7 @@
 
 ══ 第一层:一眼看懂 [light] ══
 - 🟦 **TL;DR**:【原文】造一个能上生产的软件工程 agent 很难——既要实现灵活、又要执行安全可靠、还要有人机交互界面。本文给出 **OpenHands Software Agent SDK**(对流行 OpenHands 框架 agent 组件的**彻底架构重构**,V0→V1),把 18 个月开源 + 生产部署的经验固化成一套**经验证的参考架构**:① 默认几行代码即可起一个 agent,又可扩展到带自定义工具/记忆管理的复杂 agent;② **事件溯源(event-sourcing)状态模型 + 确定性重放** + 不可变配置 + 带 MCP 集成的类型化工具系统;③ **workspace 抽象**让同一个 agent 在本地原型(无沙箱 CLIRuntime)与远程容器化安全环境(Docker/Kubernetes)间几乎零改代码切换;④ 自带 REST/WebSocket 服务器、可连 VS Code/VNC/浏览器/CLI/API 多种界面。相比 OpenAI/Claude/Google 的纯库式 SDK,它独有"原生沙箱执行 + 生产服务器 + 跨 100+ provider 的多 LLM 路由 + 动作安全分析器 + 内建 QA 探针 + 原生支持非 function-calling 模型 + Agent Skills"组合。
-- **最巧的一步**:【推断,依据 §4.1/§4.2 + Fig1】把单体、强制沙箱的 V0 拆成**四个解耦 Python 包**(`openhands.sdk` 核心抽象 / `openhands.tools` 工具实现 / `openhands.workspace` 执行环境 / `openhands.agent_server` API 服务)+ 事件溯源核。抽掉模块化解耦,本地与远程、核心与工具又耦合回去,QA 瓶颈与"沙箱假设拖累 CLI"的老问题复发——这是从 V0 痛点反推出的关键设计。
+- **最巧的一步**:【推断,依据 §4.1/§4.2 + Fig1】把单体、强制沙箱的 V0 拆成**四个解耦 Python 包**(`openhands.sdk` 核心抽象 / `openhands.tools` 工具实现 / `openhands.workspace` 执行环境 / \(openhands.agent_server\) API 服务)+ 事件溯源核。抽掉模块化解耦,本地与远程、核心与工具又耦合回去,QA 瓶颈与"沙箱假设拖累 CLI"的老问题复发——这是从 V0 痛点反推出的关键设计。
 
 ══ 第二层:为什么做 ══
 - **研究背景**:【原文 §1】软件工程里 AI agent 从辅助工具(Copilot/Cursor)进化到能自主跑数小时复杂任务的系统(Devin/Claude Code/OpenHands)。生产级部署需要**持久状态管理 + 沙箱安全执行 + 跨环境(本地↔容器云)一致行为**这些系统底座,而早期辅助工具(本地用户驱动)不需要这些。
@@ -14,7 +14,7 @@
 - **与最近邻的 Δ**:【推断,依据 Table 对比】最近邻是 Claude/OpenAI Agent SDK。关键 Δ=**把"原生沙箱执行 + 生产服务器 + 事件溯源可恢复 + 多 LLM 路由 + 安全分析器"做进 SDK 本体**,而非留给用户自己拼。这差异有用,因为生产可靠性与本地↔远程零改部署正是纯库式 SDK 的痛点。
 
 ══ 第三层:怎么做 + 靠不靠谱 ══
-- **方法流水线**:【原文 §4】这是工程架构而非算法管线——四个解耦包咬合:① `openhands.sdk`(核心抽象:Agent/LLM/Tool/MCP + 事件流 + Condenser 上下文压缩 + LLM Registry);② `openhands.tools`(工具实现,extends sdk 抽象);③ `openhands.workspace`(DockerWorkspace/RemoteAPIWorkspace/CLIRuntime,负责本地↔远程执行,spawn/connect 到 agent server);④ `openhands.agent_server`(FastAPI REST+WebSocket 暴露 agent)。运行期:所有交互作为**不可变事件追加进 event stream**,单一 conversation state 对象记录全部可变上下文,支持确定性重放与暂停/恢复;Router 继承 LLM 维持统一接口做多 LLM 路由;NonNativeToolCallingMixin 让无原生 function-calling 的模型也能用工具。
+- **方法流水线**:【原文 §4】这是工程架构而非算法管线——四个解耦包咬合:① `openhands.sdk`(核心抽象:Agent/LLM/Tool/MCP + 事件流 + Condenser 上下文压缩 + LLM Registry);② `openhands.tools`(工具实现,extends sdk 抽象);③ `openhands.workspace`(DockerWorkspace/RemoteAPIWorkspace/CLIRuntime,负责本地↔远程执行,spawn/connect 到 agent server);④ \(openhands.agent_server\)(FastAPI REST+WebSocket 暴露 agent)。运行期:所有交互作为**不可变事件追加进 event stream**,单一 conversation state 对象记录全部可变上下文,支持确定性重放与暂停/恢复;Router 继承 LLM 维持统一接口做多 LLM 路由;NonNativeToolCallingMixin 让无原生 function-calling 的模型也能用工具。
 - **逐组件必要性 + 四大设计原则**(原则即"为什么每件必要"的论证,【原文 §4】):① **Optional isolation**(默认本地、按需沙箱)——治 V0"强制沙箱拖累 CLI";② **Stateless by default, one source of truth**(组件构造时不可变并校验、单一 conversation state)——保证会话可靠恢复;③ **Strict separation of concerns**(agent core 与应用解耦)——CLI/WebUI/GitHub App 当共享库用、不重复逻辑;④ **Two-layer composability**(四包可独立组合 + 按类型安全替换工具/agent)。注:这是 SDK 论文,**无算法消融**;必要性靠"V0 痛点→V1 原则"的对照论证 + 生产数据支撑【推断】。
 - **关键机制/直觉**:【原文 §4】**event-sourcing(事件溯源)**的直觉=把 agent 的全部交互记成一串不可变事件,任意时刻的状态都能由"重放事件序列"确定性重建——这同时给到"可恢复/可暂停续跑/可审计/可复现"四件事,且开销可忽略。这正是生产可靠性的核心机制(而非任何学习机制)。
 - **实验与证据**:【原文 摘要/§5】两层实证:**系统层**——15 天生产对比,V1 比 V0 降低**系统归因失败 61%**,事件溯源开销可忽略;**能力层**——跨 **14 个 LLM** + 5 类基准(SWE-Bench Verified / GAIA / SWE-Bench Multimodal / SWT-Bench / Commit0)验证重构后 agent 性能不掉;模型分工:Claude 系主导 issue 解决与测试,**GPT-5.4 在长程 greenfield 开发领先 62.5%(+12.5pts)**。证据扎实(真实生产数据),但属"系统可靠性 + agent 能力"评测,非学习信号。代码与评测 harness 均 **MIT 开源**。

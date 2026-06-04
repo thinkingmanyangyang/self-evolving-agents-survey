@@ -17,9 +17,9 @@
 - **方法流水线**(5 基础阶段 + 2 个 LLM-aware 后验证;见 Fig 1;§3):
   1. **Stage1 Parser(确定性)**:SKILL.md 按 Markdown 标题切成 procedural units;OpenAPI 按参数组切。输出 parents.json。
   2. **Stage2 Candidate proposer(确定性)**:每 unit 抽 frame 元组 (verb, objects, code_langs, linked_scripts) + text-embedding-3-small 嵌入;单链接聚类(共享 frame 且 cos≥0.65)。**故意高召回**(过聚类没关系,下游验证器会过滤)。
-  3. **Stage3 Contract extractor(LLM,每簇 1 次 gpt-4o-mini 调用)**:产严格 JSON 契约草稿 κ(trigger/input_schema/output_schema/pre-postconditions/side_effects/source_parents);模型可 `_extraction_failed` 拒绝。**此后所有拒绝都是确定性的**。
+  3. **Stage3 Contract extractor(LLM,每簇 1 次 gpt-4o-mini 调用)**:产严格 JSON 契约草稿 κ(trigger/input_schema/output_schema/pre-postconditions/side_effects/source_parents);模型可 \(_extraction_failed\) 拒绝。**此后所有拒绝都是确定性的**。
   4. **Stage4 Verifier(完全确定性,四检查)**:**Coverage**(κ 的 trigger/I-O 串对各 parent unit 文本的 token recall,抓错命名)、**Binding**(每个必需输入,(parent,input) 对中 unit 文本重叠输入名的比例,抓过宽簇)、**Replacement**(各 parent 的 unit 能否被 invoke(κ) 替换且保持 Markdown 结构,抓控制流纠缠)、**Risk**(AST 扫脚本/资源找 `rm -rf`/未声明网络出口等不安全 sink,加权分≥0.80 硬拒)。**四检查近乎正交**(无单层占首次失败拒绝的 >51%)。三档决策(auto_promote/review/reject)由阈值 (τ_auto,τ_rev) 定,对 30 个合成负样本标定到 **0% 假阳**(默认 (0.30,0.10) 提升 80 个契约)。
-  5. **Stage5 Refactor(确定性骨架 + BE/RC 两 LLM 后验)**:确定性检测 call-site;**BE(Binding Extraction,LLM)**——问 gpt-4o-mini 该 unit 是否 κ 的真实实例、每个输入绑哪段子串,确定性后检查丢掉空绑定/token 不重叠者(skills_500 上丢掉 30%=630/2105 伪 call-site);把 parent 匹配 unit 改写成 `invoke(κ, args)`;**RC(Rewrite Cleanup,LLM)**——把未聚类残留内容(Example/Workflow)中与子契约矛盾的(如用了错动词的示例)重写成 invoke 调用(成功率 320/322=99.4%)。**输出**:每 parent 的 *.rewritten.md + refactored_library.json。
+  5. **Stage5 Refactor(确定性骨架 + BE/RC 两 LLM 后验)**:确定性检测 call-site;**BE(Binding Extraction,LLM)**——问 gpt-4o-mini 该 unit 是否 κ 的真实实例、每个输入绑哪段子串,确定性后检查丢掉空绑定/token 不重叠者(skills_500 上丢掉 30%=630/2105 伪 call-site);把 parent 匹配 unit 改写成 \(invoke(κ, args)\);**RC(Rewrite Cleanup,LLM)**——把未聚类残留内容(Example/Workflow)中与子契约矛盾的(如用了错动词的示例)重写成 invoke 调用(成功率 320/322=99.4%)。**输出**:每 parent 的 *.rewritten.md + refactored_library.json。
   6. **检索时替换(§3.5,Fig2)**:任务时**只检索 parent**(提升的 child 契约存内部库,仅经 parent 的 invoke 占位到达)。命中 parent 后,检索模块给出三块:① 每个 invoke 的**逐字原始动作模板**(环境接受的确切 token)+ 绑定;② 重写的 parent 骨架;③ inline 的 child 契约。**动作模板放最前**(agent 先读),契约抽象放下面。
 - **逐组件必要性**:
   · 整套 vs GoS → 主结果 Table 1(82 vs 47 胜),**强**。

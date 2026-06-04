@@ -28,14 +28,14 @@
 
 ══ 第三层:怎么做 + 靠不靠谱 ══
 
-- **问题形式化**(§3.1):失败语料 `F={(gi,τi,fi)}`(目标、轨迹、失败标签),目标是为每条失败合成 hindsight 目标 ĝi 使 τi 成为 ĝi 的**有效正示范**。**有效 hindsight 目标定义(Def 3.1)**:(a)ĝ 蕴含的每个事实都被观测 {ot} 支持;(b)两个独立裁判 J1,J2 都给 c(ĝ,τ)≥θ。映射 Φ 把每条失败映成训练样本或拒绝(⊥);增广语料从 M 条成功最多长到 M+N。【原文 §3.1】
+- **问题形式化**(§3.1):失败语料 \(F={(gi,τi,fi)}\)(目标、轨迹、失败标签),目标是为每条失败合成 hindsight 目标 ĝi 使 τi 成为 ĝi 的**有效正示范**。**有效 hindsight 目标定义(Def 3.1)**:(a)ĝ 蕴含的每个事实都被观测 {ot} 支持;(b)两个独立裁判 J1,J2 都给 c(ĝ,τ)≥θ。映射 Φ 把每条失败映成训练样本或拒绝(⊥);增广语料从 M 条成功最多长到 M+N。【原文 §3.1】
 
 - **方法流水线**(Fig 2 四阶段,Algo 1 端到端):
   1. **Stage 1 失败检测器**:给每条轨迹分配失败类型 ϕ∈{INCOMPLETE, CONSTRAINT_VIOLATION, WRONG_RESULT, TOOL_ERROR, HALLUCINATION, OFF_TOPIC}、可恢复 flag r、严重度权重 w。**两种模式**:rule-based(关键词词典,零成本)或 LLM-judge(JSON schema 输出)。**MQM 式严重度加权**:major 错误(推理矛盾/幻觉观测/灾难性工具误用)w<δ=0.3 → 丢弃;minor 错误 w∈[0.3,1] → 下传,w 用来在 Stage 4 加权 DPO loss。这一步把噪声重标从 5.9% 降到 2.9%。
   2. **Stage 2 结果抽取器**:产出 REPLAYOUTCOME——"实际达成清单 + 关键观测(数字/实体/事实)",**只保留被观测证实的事实**,锚定 Stage 3 防幻觉。
   3. **Stage 3 跨模型重标+验证**:relabeler J1 据 outcome + 原 prompt 风格合成 (ĝ, b_valid, rationale, c1),四约束(读着像真用户请求 / 每个断言被观测满足 / 不引用原失败 prompt / 复杂度匹配原 g)。**跨模型双裁判**:J1=gpt-4o-mini(T=0.3 首试/0.7 重试)、J2=Qwen2.5-72B-Instruct(T=0,schema 约束,vLLM)。要 c1≥θ 且 c2≥θ 才接受;最多 K=3 次重试;若都没过双裁判但有一次过单裁判 c1≥0.8θ 则保留 best-effort 兜底。
   4. **Stage 4 数据打包(确定性)**:序列化成 **SFT**(两轮对话 [(user,ĝ),(assistant,ã)],ã 从 τ 重构 CoT,loss 按 w 缩放)/ **DPO**(chosen (ĝ,τ) vs rejected (gorig,τ),w 缩放 reward margin)/ **ShareGPT**(兼容 LLaMA-Factory / ms-swift / FastChat)。【原文 §3.2–3.6】
-  - **理论可信性(§3.7)**:Prop 3.1 完美裁判下每个接受对都是 oracle 目标条件策略支持内的正确样本;Cor 3.1.1 噪声裁判精度 p 下,相对 SFT-Success 的期望增益下界 `p·Δ_perfect − (1−p)·ε`;对 MJ-X 的 p=0.971,只要 ε≤33·Δ_perfect 就为正。作者明确说这是**plausibility argument 而非部署保证**。【原文 §3.7】
+  - **理论可信性(§3.7)**:Prop 3.1 完美裁判下每个接受对都是 oracle 目标条件策略支持内的正确样本;Cor 3.1.1 噪声裁判精度 p 下,相对 SFT-Success 的期望增益下界 \(p·Δ_perfect − (1−p)·ε\);对 MJ-X 的 p=0.971,只要 ε≤33·Δ_perfect 就为正。作者明确说这是**plausibility argument 而非部署保证**。【原文 §3.7】
 
 - **逐组件必要性 / 消融**(§4.6):
   - *跨模型双裁判 MJ-X*:✔。比 MJ-S(同模型双温度)+0.5%、噪声 4.4%→2.9%;比 SJ +0.8–1.6%。证明模型级独立 > 温度独立。

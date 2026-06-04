@@ -5,7 +5,7 @@
 ══ 第一层:一眼看懂 [light] ══
 
 - 🟦 **TL;DR**:给一个**会写代码的 Agent** 配上最基本的编码工具(开/关/改文件、跑 shell、提交答案),然后让它**改自己的源代码**——加新工具、改 prompt、改子 Agent 的编排方式——从而在 benchmark 上越跑越好。关键卖点:**meta-agent 和 target-agent 是同一个东西**(消除了 ADAS 里"另设一个改进器"的分裂),即**完全自指(fully self-referential)**:今天改进出来的更强编码能力,下一轮还能用来更好地改进自己,有望复利滚动。**全程不动模型权重**,纯靠"LLM 反思 + 改代码"这种**免梯度、样本高效**的学习。实测 SWE-Bench Verified 子集从 17% → 53%。【原文 Abstract、§1、Fig.1】
-- **最巧的一步(抽掉就垮)**:**"benchmark runner 框架天然把'改进编码 Agent'本身变成一个可被该 Agent 解的编码任务"(self-referential task)+ 从 archive 里按效用挑'当前最强 Agent 当 meta-agent'**(Algorithm 1 第4行 `î = argmax_j p_j`)。抽掉"自指"这一步,它就退回成 ADAS(固定 meta-agent 改 target);抽掉"从档案挑最强当改进器",复利效应(改进能力随迭代增强)就没了。这两点合起来才是"自我改进"区别于"被人/被固定 agent 改进"的本质。
+- **最巧的一步(抽掉就垮)**:**"benchmark runner 框架天然把'改进编码 Agent'本身变成一个可被该 Agent 解的编码任务"(self-referential task)+ 从 archive 里按效用挑'当前最强 Agent 当 meta-agent'**(Algorithm 1 第4行 \(î = argmax_j p_j\))。抽掉"自指"这一步,它就退回成 ADAS(固定 meta-agent 改 target);抽掉"从档案挑最强当改进器",复利效应(改进能力随迭代增强)就没了。这两点合起来才是"自我改进"区别于"被人/被固定 agent 改进"的本质。
 
 ---
 
@@ -29,10 +29,10 @@
 ### 方法流水线(Meta-Agent Loop,Fig.1 + Algorithm 1)
 1. **初始化 A0**:一个"最小但够用"的编码 agent(见下"初始 agent 配置")。
 2. **评测当前代 Ai**:在 benchmark 集 B 上跑,存性能 pi。
-3. **挑 meta-agent**:从 archive(A≤i 及其分数 p≤i)里**按效用挑分最高的那一代 Aî 当 meta-agent**(`î=argmax p`)。
+3. **挑 meta-agent**:从 archive(A≤i 及其分数 p≤i)里**按效用挑分最高的那一代 Aî 当 meta-agent**(\(î=argmax p\))。
 4. **自我改进**:让 Aî 翻阅 archive(看历代做了什么、效果如何)→ **识别一个改进点 → 在代码库里实现它 → 产出 Ai+1**。
 5. **回到 2**,迭代 n 次。**因不更新权重,效用分数只用来"挑下一个 meta-agent + 下一轮 base agent",不做任何梯度更新**(§3 明确)。
-   - **效用函数(公式1–2)**:`U = 0.5·p_score + 0.25·(1−min(1, cost/\$10)) + 0.25·(1−min(1, time/300s))` —— 把**性能、$成本、墙钟时间**三项加权;超时(>300s)给 τ=0.5 的半惩罚 `U_final=U(1−τ)`。**即"又准又快又省"才算好 agent**,这把成本/速度也纳入了进化目标(而非只追准确率)。
+   - **效用函数(公式1–2)**:\(U = 0.5·p_score + 0.25·(1−min(1, cost/\$10)) + 0.25·(1−min(1, time/300s))\) —— 把**性能、$成本、墙钟时间**三项加权;超时(>300s)给 τ=0.5 的半惩罚 \(U_final=U(1−τ)\)。**即"又准又快又省"才算好 agent**,这把成本/速度也纳入了进化目标(而非只追准确率)。
 
 ### 初始 agent 配置(§3.1,这些都可被自我改进)
 - **工具**:开/关文件(进/出 context)、覆写文件、执行 shell、计算器、提交最终答案、子 agent 返回值、提前退出、**archive 分析工具**(抽取历代 agent 的高层统计)。

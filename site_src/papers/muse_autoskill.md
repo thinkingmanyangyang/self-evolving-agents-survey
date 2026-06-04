@@ -35,7 +35,7 @@
   5. **Execution**:在 ReAct loop 内用内置工具执行;沙箱生命周期工具(create_sandbox / sandbox_run / sandbox_upload-download / close_sandbox),**每次调用一个隔离进程/容器**(失败/副作用/资源按调用隔离);复用 agent 通用工具而非另起执行引擎。
   6. **Memory(三级)**:**短期**=当前任务上下文(超长则自适应压缩);**长期**=跨会话持久笔记(可复用结论/环境怪癖/通用教训,**不压缩**);**技能级**(独特)=每技能一份 `.memory.md`,append 该技能的失败模式/输入格式坑/性能注意,**下次加载该技能时连同 SKILL.md 一起 surface**,免重新推导。
   7. **Management**:每技能按 SKILL.md 元数据(name/desc/inputs/outputs)索引;任务开始把技能目录注入 system prompt(progressive disclosure);三机制维护——**refinement**(失败/输出错则改/重生)、**merging**(新技能与旧重叠则合并成更通用的)、**pruning**(长期失败/不用则剪除)。
-  8. **Context Management(§3.4,Fig.4)**:对话历史存成 **DAG**(每 turn 一节点,记 response/tool calls/observation/token);每节点有 mutable `parent_id`(当前发给 LLM 的活动链)+ immutable `history_prev/next`(完整原始历史)。超预算时**两级压缩**:L1=单节点(超阈值的大输出)就地摘要替换(破坏性小,保留 turn 边界);L1 不够才 L2=合并一段连续中间节点为一个合成节点;**首 KEEP_FIRST + 尾 KEEP_LAST 永远钉住**(锚定系统/早期规划 + 最近状态);原节点留在完整历史 → 活动链永远可恢复、可跨会话续跑(每会话存快照)。
+  8. **Context Management(§3.4,Fig.4)**:对话历史存成 **DAG**(每 turn 一节点,记 response/tool calls/observation/token);每节点有 mutable `parent_id`(当前发给 LLM 的活动链)+ immutable \(history_prev/next\)(完整原始历史)。超预算时**两级压缩**:L1=单节点(超阈值的大输出)就地摘要替换(破坏性小,保留 turn 边界);L1 不够才 L2=合并一段连续中间节点为一个合成节点;**首 KEEP_FIRST + 尾 KEEP_LAST 永远钉住**(锚定系统/早期规划 + 最近状态);原节点留在完整历史 → 活动链永远可恢复、可跨会话续跑(每会话存快照)。
 
 - **逐组件必要性**:⚠️【推断·重要祛魅】**本文没有传统的"逐组件消融表"**(没有 w/o skill-level-memory、w/o evaluation-gate、w/o context-compression 各掉多少分的对照)。证据形态是:① **整体效果对照**(带技能 vs 不带技能,Table 2/4);② **anatomy 对照**(Fig.6:MUSE 技能 vs 人类技能的结构差异——MUSE 中位 326 行 vs 人类 146 行、唯一 ship tests/);③ **成本-质量 Pareto**(Fig.5/7);④ **case study**(4 个技能含 1 个回归)。所以"技能级记忆""单测门""两级压缩"各自的边际贡献**未被单独量化消融**,其必要性靠设计论证 + 整体/anatomy 证据支撑。须明确标出。
 
@@ -82,7 +82,7 @@
 - 🖼 **关键图 top-2**:
 
   ![图1-MUSE 端到端流程:ReAct主循环 + 创建/评测/精炼/记忆子系统](../figures/muse_autoskill_fig1.png)
-  这是**原文 Figure 3**(端到端流程主图,p6)。完整呈现:Master Agent 跑 ReAct(Plan/Action/Observation)→需技能时查 Skill Bank 或派 Skill Creator 合成包(SKILL.md + scripts/ + tests/)→**Evaluator 跑 tests/,pass 则观察写 Memory、fail 则 Refiner 打补丁重入循环**;并用具体例子点睛(技能级记忆 `[skill:pdf_extract] timeout on PDFs>100MB`、Refiner 的 diff patch)。选它因为一张图说清本文最核心的机制咬合——**create→evaluate(单测)→register/refine 闭环 + 三级记忆 + 沙箱执行**,是理解 MUSE 的唯一必读图。
+  这是**原文 Figure 3**(端到端流程主图,p6)。完整呈现:Master Agent 跑 ReAct(Plan/Action/Observation)→需技能时查 Skill Bank 或派 Skill Creator 合成包(SKILL.md + scripts/ + tests/)→**Evaluator 跑 tests/,pass 则观察写 Memory、fail 则 Refiner 打补丁重入循环**;并用具体例子点睛(技能级记忆 \([skill:pdf_extract] timeout on PDFs>100MB\)、Refiner 的 diff patch)。选它因为一张图说清本文最核心的机制咬合——**create→evaluate(单测)→register/refine 闭环 + 三级记忆 + 沙箱执行**,是理解 MUSE 的唯一必读图。
 
   ![图2-SkillsBench 头条结果:三 GPT-5.5 agent 跨四域,MUSE 带技能领先](../figures/muse_autoskill_fig2.png)
   这是**原文 Figure 1**(头条结果图,p1)。三个同用 GPT-5.5 的 agent(Codex/Hermes/MUSE)在四超域 + 总分上、带/不带人类技能的准确率对比;MUSE 带技能在 3/4 域及总分(68.4% vs Codex 67.3 / Hermes 61.2)最高,+15.2pp 一致提升。选它因为它一图坐实本文的核心定位实证——**同 backbone 下技能机制有效且 MUSE 系统设计最会用技能**(控变量干净),也直观呈现 Sci&Eng 域 MUSE 落后 Codex 这个被作者诚实披露的弱点。

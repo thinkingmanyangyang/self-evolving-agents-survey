@@ -36,7 +36,7 @@
 - **环境 = POMDP**:E=(G,S,A,T,R,Ω,O,γ)。G 目标集(用户 query)、S 状态、**A 动作 = 文本推理 ∪ 外部知识检索 ∪ 工具调用**、T 转移、**R 反馈/奖励(scalar 或 textual,以目标 g 为条件)**、Ω/O 观测、γ 折扣。
 - **(多)Agent 系统 = Π=(Γ, {ψi}, {Ci}, {Wi})**:**Γ 架构/控制流**(节点序列,图或代码结构);每个节点 Ni 含 **ψi=底层 LLM/MLLM**、**Ci=上下文(prompt Pi + memory Mi)**、**Wi=可用工具/API 集**。节点策略 πθi(·|o),其中 **θi=(ψi, Ci)**,动作空间 = 自然语言空间 ∪ 工具空间。
 - **自进化策略 = 变换 f**(全篇的"动词"):
-  `f(Π, τ, r) = Π′ = (Γ′, {ψ′i}, {C′i}, {W′i})` —— 给定当前系统、轨迹 τ、反馈 r,产出**新系统**。递归地 `Π_{j+1}=f(Π_j, τ_j, r_j)`,目标是**最大化任务序列上的累计效用** max_f Σ_j U(Π_j, T_j)。**这就是 What(改 Π 的哪一项 Γ/ψ/C/W)× When(在哪个 j、test-time 内还是任务间)× How(f 怎么用 τ 和 r)的统一语言。**
+  \(f(Π, τ, r) = Π′ = (Γ′, {ψ′i}, {C′i}, {W′i})\) —— 给定当前系统、轨迹 τ、反馈 r,产出**新系统**。递归地 \(Π_{j+1}=f(Π_j, τ_j, r_j)\),目标是**最大化任务序列上的累计效用** max_f Σ_j U(Π_j, T_j)。**这就是 What(改 Π 的哪一项 Γ/ψ/C/W)× When(在哪个 j、test-time 内还是任务间)× How(f 怎么用 τ 和 r)的统一语言。**
 - **操作性定义(§2.1,判别尺,极重要)**:*"A self-evolving agent is the agent that modifies its internal parameters, contextual state, toolset, or architectural topology based on its own trajectories or feedback signals, with the explicit objective of improving future performance."* 三条**纳入准则**:
   1. **经验依赖(experience-dependent)**:更新由轨迹/自生成数据/环境反馈驱动,且**针对 Agent 自身策略短板/能力边界**(不是泛泛的数据合成);
   2. **持久且改策略(persistent, policy-changing)**:产生持久的、改变策略的效果,**而非一次性 instruction-following**;

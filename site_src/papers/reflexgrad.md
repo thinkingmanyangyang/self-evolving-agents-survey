@@ -26,7 +26,7 @@
 - **方法流水线(3 组件,Fig.1/Algo.1)**：【原文】任务=NL 指令 τ。
   1. **任务分解(每任务一次)**:f_dec(τ,o_0) 分解成 TODO 列表 T={τ_1..τ_n}(n∈[3,8]),每个带状态 σ∈{pending,active,done,failed} 与 per-TODO 状态;active TODO 当 checkpoint 防回归(§3.1)。
   2. **每步评估+窗口**:LLM 评估器 E 打逐步进度分 s_t=E(o_t,a_t,o_{t+1},τ)∈[0,10];滚动窗口 W_t=最近 m 个分(§3.1 Eq.1-2)。
-  3. **路由(Eq.3,确定性)**:`R_t = SLOW if c_t=0 且 ∀i∈[t−m+1,t]:s_i<θ_low; COOL if c_t>0; FAST otherwise`。**slow 只在 m 个连续分都 <θ_low 时触发(非平均低)**;激活时 c_t←c=5 进 cooldown(§3.2)。约 **85% 步 FAST / 15% SLOW**(规则在 ALFWorld 上的产物,非调参)。
+  3. **路由(Eq.3,确定性)**:\(R_t = SLOW if c_t=0 且 ∀i∈[t−m+1,t]:s_i<θ_low; COOL if c_t>0; FAST otherwise\)。**slow 只在 m 个连续分都 <θ_low 时触发(非平均低)**;激活时 c_t←c=5 进 cooldown(§3.2)。约 **85% 步 FAST / 15% SLOW**(规则在 ALFWorld 上的产物,非调参)。
   4. **FAST(每 k=3 步)**:对最近 k 个 tuple 算文本梯度 g_t=LLM_grad(π_t, W_t[−k:], 最近 k 步轨迹)——TextGrad 式四阶段(loss→gradient→apply→updated policy),局部战术纠错(§3.3)。
   5. **SLOW(门控触发)**:单独 LLM call 对更长轨迹做因果诊断 ρ_t=LLM_diag(π_t,W_t,最近 m 步带分)——Reflexion 式四阶段(retrieve memory→诊断根因 d_t→生成 1–3 子目标 plan ρ_t→updated policy);plan **替换**下一次梯度更新、并贯穿 cooldown 让 agent 无干扰执行(§3.4)。
   6. **Policy Merge(Eq.6)**:确定性优先级 **plan ρ_t ≻ gradient g_t ≻ base policy π_t**;**不平均** NL 指令(§3.5)。每次 slow 激活产三 artifact:可复现触发器 + 因果诊断 d_t + 验证过的 plan ρ_t。

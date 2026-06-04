@@ -1,18 +1,18 @@
 `mempo_self_memory | MemPO: Self-Memory Policy Optimization for Long-Horizon Agents | Tsinghua University + Tongyi Lab (Alibaba) (Yongbin Li / Jinli Suo 组) | 2026-03(v1)→2026-04-09 v3 arXiv preprint (cs.AI) | L? 记忆线（自管理记忆 + RL，credit assignment）·相关性 High`
 
 ══ 第一层：一眼看懂 [light] ══
-- 🟦 **TL;DR**：长程智能体的 context 随每轮交互线性膨胀→token 贵 + "lost in the middle" 掉点。现有做法靠**外部 RAG 记忆模块**检索，模型自己不能主动管记忆、且检索只看 embedding 相似度未必对解题最有用。MemPO 让**策略模型自己**在每步交互里用 `<mem>` 动作主动压缩/重组历史（与 `<think>`/`<tool_call>` 并列），推理时只喂上一步的 `<mem>` 而非全历史；再用一个**改进的 GRPO**——给 `<mem>` token 在轨迹级 advantage 之外额外加一个**记忆级 advantage**。在 5 个长程基准上比 base +25.98 F1、比上一 SOTA +7.1 F1，且 token 降 67.58%/73.12%。
+- 🟦 **TL;DR**：长程智能体的 context 随每轮交互线性膨胀→token 贵 + "lost in the middle" 掉点。现有做法靠**外部 RAG 记忆模块**检索，模型自己不能主动管记忆、且检索只看 embedding 相似度未必对解题最有用。MemPO 让**策略模型自己**在每步交互里用 `<mem>` 动作主动压缩/重组历史（与 `<think>`/\(<tool_call>\) 并列），推理时只喂上一步的 `<mem>` 而非全历史；再用一个**改进的 GRPO**——给 `<mem>` token 在轨迹级 advantage 之外额外加一个**记忆级 advantage**。在 5 个长程基准上比 base +25.98 F1、比上一 SOTA +7.1 F1，且 token 降 67.58%/73.12%。
 - **最巧的一步**：**`<mem>` 的稠密记忆奖励 RM = P(正确答案 | 当前步 `<mem>` 内容) − P(正确答案 | 前 t-1 步完整前缀)**——一个**免梯度的条件概率代理**，直接量化"这段压缩记忆保留了多少对解题有用的信息"。抽掉它就退化成 vanilla GRPO（只有稀疏的轨迹级 reward，无法告诉模型每步 `<mem>` 压得好不好），消融证实加了它 F1 全面提升、且条件概率分布更偏高值。
 
 ══ 第二层:为什么做(写透) ══
 - **研究背景**:长程决策是 agent 解复杂问题的核心能力。主流交互范式 ReAct 把环境反馈不断拼进历史当 prompt,导致 **context 随每轮交互线性膨胀**。【原文 §1】
 - **解决的具体痛点**:context 膨胀带来三个具体问题——① LLM 上下文窗口有限,**给交互轮数设了硬上限**;② 长 context **token 成本过高**,阻碍 agent 系统实际落地;③ 过长 context 触发 **"lost in the middle"**,模型能力下降、整体表现退化。【原文 §1】
 - **相关工作 & 各自不足**:① 外部记忆模块(MemGPT 类 OS 式分层、Mem0 动态抽取/巩固/检索、A-MEM、RAG)——把历史存外部库按需检索注入,但**离线记忆压缩缺乏面向任务执行的联合优化,难对齐 agent 总目标**,检索是被动的(只看 embedding 相似度,未必对解题最有用);② MEM1(RL-based 记忆 baseline)——同向但 credit assignment 较粗。共同缺口=**模型自己不能主动管记忆、记忆管理与任务目标不联合优化**。【原文 §1, §2, §5.2】
-- **动机链**:现状=长程 agent context 线性膨胀(贵+lost-in-middle)→ 缺陷=外部 RAG 记忆是被动检索、不与任务联合优化、模型无法主动 curate → 关键转念:**把记忆管理变成 agent 自身的内生能力**——让策略模型用 `<mem>` 动作(与 `<think>`/`<tool_call>` 并列)主动压缩/重组历史,推理时只喂上一步的 `<mem>` 而非全历史;但光这样训不好,因为轨迹级稀疏 reward 无法告诉每步 `<mem>` 压得好不好 → 所以必须**给 `<mem>` 加一个记忆级稠密奖励 + credit assignment**。为什么不用外部记忆模块?因为外部模块无法与任务目标联合优化、检索被动。【原文 §1】
+- **动机链**:现状=长程 agent context 线性膨胀(贵+lost-in-middle)→ 缺陷=外部 RAG 记忆是被动检索、不与任务联合优化、模型无法主动 curate → 关键转念:**把记忆管理变成 agent 自身的内生能力**——让策略模型用 `<mem>` 动作(与 `<think>`/\(<tool_call>\) 并列)主动压缩/重组历史,推理时只喂上一步的 `<mem>` 而非全历史;但光这样训不好,因为轨迹级稀疏 reward 无法告诉每步 `<mem>` 压得好不好 → 所以必须**给 `<mem>` 加一个记忆级稠密奖励 + credit assignment**。为什么不用外部记忆模块?因为外部模块无法与任务目标联合优化、检索被动。【原文 §1】
 - **与最近邻的 Δ**:相比 **MEM1**(同为长程多目标任务上的 RL 记忆方法、同 base、同测试协议),关键差异=**MemPO 给 `<mem>` token 设计了"记忆级 advantage"(用条件概率代理度量记忆有用性),做了 per-step 的记忆 credit assignment**,而非只有轨迹级稀疏信号。这个差异有用,因为它直接量化"这步压缩保留了多少对解题有用的信息",引导模型只留强相关内容。【原文 §1, §4】
 
 ══ 第三层:怎么做 + 靠不靠谱 ══
-- **方法流水线**:① **范式重构**——把每步状态拆成 {`<mem>` 记忆动作, `<think>` 推理, `<tool_call>` 调用, `<information>` 工具返回};推理时**只用上一步交互**(上一步的 `<mem>` + 信息)作下一步输入,而非线性累积全 context(Fig.1);② **BC 冷启动**——先用 GPT-4.1 在 Tang et al. 数据上推理得 ~10k 含 `<mem>` 的轨迹,SFT 一轮让模型学会生成 `<mem>` 格式;③ **MemPO(改进 GRPO)**——N 条 rollout,每条算轨迹级 reward RT(答案正确且格式对=1 否则 0)→ 组归一化得轨迹级 advantage A^T;每步 `<mem>` 额外算记忆级 reward RM → 组归一化得记忆级 advantage A^M;**`<mem>` token 的最终 advantage = A^T + A^M,其余 token 只用 A^T**;④ KL 锚 πref。【原文 §1, §3-4, Fig.1-2】
+- **方法流水线**:① **范式重构**——把每步状态拆成 {`<mem>` 记忆动作, `<think>` 推理, \(<tool_call>\) 调用, `<information>` 工具返回};推理时**只用上一步交互**(上一步的 `<mem>` + 信息)作下一步输入,而非线性累积全 context(Fig.1);② **BC 冷启动**——先用 GPT-4.1 在 Tang et al. 数据上推理得 ~10k 含 `<mem>` 的轨迹,SFT 一轮让模型学会生成 `<mem>` 格式;③ **MemPO(改进 GRPO)**——N 条 rollout,每条算轨迹级 reward RT(答案正确且格式对=1 否则 0)→ 组归一化得轨迹级 advantage A^T;每步 `<mem>` 额外算记忆级 reward RM → 组归一化得记忆级 advantage A^M;**`<mem>` token 的最终 advantage = A^T + A^M,其余 token 只用 A^T**;④ KL 锚 πref。【原文 §1, §3-4, Fig.1-2】
 - **逐组件必要性**:① `<mem>` 动作内生化——没它退回外部 RAG(被动、不联合优化);② BC 冷启动——没它模型不会生成合规 `<mem>`;③ 记忆级 reward RM + 双 advantage——**这是最巧的一步**,没它退化成 vanilla GRPO(只有稀疏轨迹 reward,无法告诉模型每步压得好不好),消融证实加 RM 后 F1 全面提升、条件概率分布更偏高值。论文有针对 RM 的消融。【原文 §3-4】
 - **关键机制 RM(直觉)**:**RM = P(正确答案 | 当前步 `<mem>` 内容) − P(正确答案 | 前 t-1 步完整前缀)**。直觉:用策略模型自己的 forward 条件概率当探针——"只看这步压缩后的记忆,模型答对的概率,相比看完整前缀,差多少"——差得越小说明 `<mem>` 保留的有用信息越足。这是一个**免梯度的信息量代理**(用 πθ 的 forward 概率算,不需外部标注),与 forward-hard/backward-soft 解耦同源:用 forward 条件概率构造有界平滑信号去引导一个原本稀疏/硬的目标。【原文 §3】
 - **实验与证据(支撑核心主张的关键数字)**:
@@ -35,7 +35,7 @@
 
 🖼 **关键图 top-2** [light]：
 ![图1-自记忆推理过程（原文 Figure 1）](../figures/mempo_self_memory_fig1.png)
-图1（动机/范式图）：每步状态拆成 {`<mem>` 记忆, `<think>` 推理, `<tool_call>` 调用, `<information>` 工具返回}；推理时**只用上一步交互**作下一步输入（`<mem>` 动作压缩历史），而非线性累积全 context。选它因为一图说清"自记忆"区别于外部 RAG 的本质——记忆是 inline 动作、context 不膨胀。
+图1（动机/范式图）：每步状态拆成 {`<mem>` 记忆, `<think>` 推理, \(<tool_call>\) 调用, `<information>` 工具返回}；推理时**只用上一步交互**作下一步输入（`<mem>` 动作压缩历史），而非线性累积全 context。选它因为一图说清"自记忆"区别于外部 RAG 的本质——记忆是 inline 动作、context 不膨胀。
 
 ![图2-MemPO 双 advantage 流程（原文 Figure 2）](../figures/mempo_self_memory_fig2.png)
 图2（方法主图）：N 条 rollout→每条算轨迹级奖励 RT 与每步记忆奖励 RM(用条件概率 Pmem−ε)→组归一化得 A^T 与 A^M→**`<mem>` token 的最终 advantage = A^T + A^M，其余 token 只用 A^T**；推理时只喂上一步内容。选它因为它精确呈现了全文最核心的创新——记忆级 credit assignment 的计算与注入方式。

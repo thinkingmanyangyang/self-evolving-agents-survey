@@ -5,7 +5,7 @@
 
 ══ 第一层：一眼看懂 [light] ══
 
-- 🟦 **TL;DR**：这是继 Gao et al.(本调研第一锚 survey_self_evolving_agents_asi)之后的**第二篇权威"自进化 AI agent"综述**。核心不是堆论文,而是提出一个**统一的"反馈闭环(feedback loop)"概念框架**把整个领域装进去:任何自进化系统都可拆成 **四个组件——System Inputs(系统输入)→ Agent System(被优化的 agent)→ Environment(环境/反馈)→ Optimiser(优化器)**,优化器的工作被形式化成 `A* = argmax_{A∈S} O(A; I)`(在搜索空间 S 里、用某优化算法 H、按评估函数 O 找最优 agent 配置)。围绕这个框架,综述把方法按**被优化的组件**分三大类——**单 agent 优化**(LLM 行为 / prompt / memory / tool)、**多 agent 优化**(topology / workflow / 通信)、**领域专用优化**(生物医学 / 编程 / 金融 / 法律)。此外还提出**自进化三定律(Three Laws:Endure 安全 > Excel 性能保持 > Evolve 自主演化,仿阿西莫夫机器人三定律的层级约束)**,并把 LLM 学习范式的演进画成 **MOP→MOA→MAO→MASE** 四阶段轨迹(静态预训练 → 在线适应 → 多 agent 编排 → 多 agent 自进化)。最后专章讨论评估、安全、伦理与开放挑战。配套开源仓 **EvoAgentX/Awesome-Self-Evolving-Agents**(论文清单)。【原文 Abstract/§1/§3】
+- 🟦 **TL;DR**：这是继 Gao et al.(本调研第一锚 survey_self_evolving_agents_asi)之后的**第二篇权威"自进化 AI agent"综述**。核心不是堆论文,而是提出一个**统一的"反馈闭环(feedback loop)"概念框架**把整个领域装进去:任何自进化系统都可拆成 **四个组件——System Inputs(系统输入)→ Agent System(被优化的 agent)→ Environment(环境/反馈)→ Optimiser(优化器)**,优化器的工作被形式化成 \(A* = argmax_{A∈S} O(A; I)\)(在搜索空间 S 里、用某优化算法 H、按评估函数 O 找最优 agent 配置)。围绕这个框架,综述把方法按**被优化的组件**分三大类——**单 agent 优化**(LLM 行为 / prompt / memory / tool)、**多 agent 优化**(topology / workflow / 通信)、**领域专用优化**(生物医学 / 编程 / 金融 / 法律)。此外还提出**自进化三定律(Three Laws:Endure 安全 > Excel 性能保持 > Evolve 自主演化,仿阿西莫夫机器人三定律的层级约束)**,并把 LLM 学习范式的演进画成 **MOP→MOA→MAO→MASE** 四阶段轨迹(静态预训练 → 在线适应 → 多 agent 编排 → 多 agent 自进化)。最后专章讨论评估、安全、伦理与开放挑战。配套开源仓 **EvoAgentX/Awesome-Self-Evolving-Agents**(论文清单)。【原文 Abstract/§1/§3】
 - **最巧的一步**：**把"优化器(Optimiser)"抽象成 `(搜索空间 S, 优化算法 H)` 这个二元组**(§3.5)。抽掉这层抽象,这篇就退化成又一份"按组件罗列方法"的清单;**正是"任何自进化方法 = 在某搜索空间 S 上用某算法 H 优化某目标 O"这一步,让 prompt 优化、记忆优化、workflow 搜索、参数微调这些表面异构的工作能被放进同一张可比较的表里**(S 从 prompt 模板/工具选择 一直到 连续 LLM 参数/架构;H 从 规则启发式/梯度下降/贝叶斯/MCTS/RL/进化策略/可学习策略)——这是本综述区别于第一锚 Gao et al.(按 what/when/how/where 切)的"整合性视角"卖点。
 
 ══ 第二层：为什么做（写透·综述=领域地图与定位） ══
@@ -23,10 +23,10 @@
 ══ 第三层：怎么做 + 框架/分类法细节(综述核心硬货) ══
 
 - **统一概念框架(§3,全篇骨架,对应 Fig 3 闭环图)**——**四组件 + 一个优化方程**：
-  1. **System Inputs(I,§3.2)**:定义问题设置。**两档**:**Task-Level**(`I={T, D_train}` 甚至 +D_test;无标注时**动态合成 surrogate 训练样本**——直接关联本调研 self-generated data 线)/ **Instance-Level**(`I={x, y, C}`,只优化某单个实例的解,如 AlphaEvolve/Novikov 2025)。
+  1. **System Inputs(I,§3.2)**:定义问题设置。**两档**:**Task-Level**(\(I={T, D_train}\) 甚至 +D_test;无标注时**动态合成 surrogate 训练样本**——直接关联本调研 self-generated data 线)/ **Instance-Level**(\(I={x, y, C}\),只优化某单个实例的解,如 AlphaEvolve/Novikov 2025)。
   2. **Agent System(A,§3.3)**:被优化对象,可拆 LLM / prompt / memory / tool 等。**多数工作只优化单组件**;少数**联合优化**(单 agent 里 LLM+prompt;多 agent 里 prompt+topology)。
   3. **Environment(§3.4)**:提供执行上下文 + **反馈信号**(任务特定 proxy metrics:accuracy/F1/success rate;无 ground truth 时用 **LLM-based evaluators** 给 proxy/文本反馈)。
-  4. **Optimiser(P,§3.5)**:**核心组件**。形式化 `A* = argmax_{A∈S} O(A; I)`(Eq.1)。由二元组定义:
+  4. **Optimiser(P,§3.5)**:**核心组件**。形式化 \(A* = argmax_{A∈S} O(A; I)\)(Eq.1)。由二元组定义:
      - **搜索空间 S**:可探索的 agent 配置集合,粒度从 prompt/工具选择 → 连续 LLM 参数 → 架构结构。
      - **优化算法 H**:规则启发式 / 梯度下降 / 贝叶斯优化 / **MCTS** / **强化学习** / **进化策略** / 可学习策略。
      - **(S, H) 决定优化器行为** —— 这就是"优化器-反馈环"分类法的内核。
@@ -56,7 +56,7 @@
 
 - ⑦ **开源代码 + 框架/harness**：**有开源(论文清单仓,非方法实现)**——【原文 Abstract 明写】**Github: https://github.com/EvoAgentX/Awesome-Self-Evolving-Agents**(Awesome-list 性质,持续维护的自进化 agent 文献/方法索引)。**配套落地框架**:综述明确 **EvoAgentX(arXiv:2507.03616,本调研 evoagentx)是首个落地该自进化闭环的开源框架**。按本调研 clone 决策②,**Awesome-list 属"B 层只记录不 clone"**(纯文献索引,非可运行训练代码)。
 - 💰 **资源/成本与可扩展性**：综述层面【原文 §8.1.2】指出 **MAS 大规模优化算力/延迟/不稳定成本高**,效率-效果权衡未解;LLM-based evaluator 当反馈虽省标注但引入评判成本/偏差。无单一数字(综述不涉具体训练成本)。
-- 🎯 **对"探索-巩固"idea 对标** [light]：**支撑(第二锚定位工具)+ 缺口指认**。① **作为"第二锚",给本项目提供"优化器-反馈环"坐标**:本项目"在线探索→可学习离线巩固"可被精确定位为——**Agent System = LLM 参数(+记忆);Optimiser 的 (S,H) = (参数/记忆空间, GRPO/RL + MTP 引导探索);Inputs 可含自合成 surrogate;Environment 反馈含成败 + MTP 前瞻信号**。这套语言便于把本项目在综述全景里"挂位"。② **明确指认本项目的缺口/机会**:综述把"防遗忘/性能保持"列为 **Excel 定律下的未解挑战**(§8.1.2 优化结果脆弱),且**全篇没有系统的'巩固/防遗忘'机制章节**——这正是 capability_erosion_cpe + 本项目"可学习巩固"要补的空白;综述还把**"奖励建模与优化不稳定"列为安全核心挑战**(§8.1.1),与本项目"巩固坏经验会失稳"的关切一致。③ **三定律 = 现成的设计约束清单**:本项目做自进化巩固时,可直接用 **Endure(巩固前安全闸)> Excel(巩固不损旧能力)> Evolve(自主探索)** 的层级作为目标优先级。④ **Instance-Level Optimisation** 概念(只优化单实例的解)与本项目"per-step/单点 path-recovery 接管"同构,可借其形式化 `I={x,y,C}`。
+- 🎯 **对"探索-巩固"idea 对标** [light]：**支撑(第二锚定位工具)+ 缺口指认**。① **作为"第二锚",给本项目提供"优化器-反馈环"坐标**:本项目"在线探索→可学习离线巩固"可被精确定位为——**Agent System = LLM 参数(+记忆);Optimiser 的 (S,H) = (参数/记忆空间, GRPO/RL + MTP 引导探索);Inputs 可含自合成 surrogate;Environment 反馈含成败 + MTP 前瞻信号**。这套语言便于把本项目在综述全景里"挂位"。② **明确指认本项目的缺口/机会**:综述把"防遗忘/性能保持"列为 **Excel 定律下的未解挑战**(§8.1.2 优化结果脆弱),且**全篇没有系统的'巩固/防遗忘'机制章节**——这正是 capability_erosion_cpe + 本项目"可学习巩固"要补的空白;综述还把**"奖励建模与优化不稳定"列为安全核心挑战**(§8.1.1),与本项目"巩固坏经验会失稳"的关切一致。③ **三定律 = 现成的设计约束清单**:本项目做自进化巩固时,可直接用 **Endure(巩固前安全闸)> Excel(巩固不损旧能力)> Evolve(自主探索)** 的层级作为目标优先级。④ **Instance-Level Optimisation** 概念(只优化单实例的解)与本项目"per-step/单点 path-recovery 接管"同构,可借其形式化 \(I={x,y,C}\)。
 - 🔭 **开放问题/未来方向**：见上"挑战与未来"(§8)。【推断】对本调研最相关的三条:① **安全/巩固缺位**——综述自己承认安全约束被任务指标压倒、优化结果脆弱,留给 misevolution + CPE + 本项目去补"巩固期防遗忘+安全闸";② **奖励建模不稳定**——中间步 reward 稀缺噪声,正是本项目"per-step 前瞻信用分配"可切入处;③ **纵向/交互式真实评估基准缺位**——与本调研 benchmark 线(BenchTrace/OdysseyBench 等)呼应。
 
 - 🖼 **关键图 top-2** [light]：

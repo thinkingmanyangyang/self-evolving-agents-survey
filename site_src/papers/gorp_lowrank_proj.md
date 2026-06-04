@@ -32,7 +32,7 @@
   2. **低秩投影优化 (Low-Rank Projection Optimization, §3.2)**:
      - *LoRA 参数*:只对 A 矩阵投影——把 A 的梯度 G_{A,l} 投到旧梯度空间的正交补(Eq.5:G' = G − S Sᵀ G),再 Adam 更新。
      - *全秩参数*:仿 GaLore,Adam 时用低秩更新而非全秩。把全秩梯度 G_{t,l} SVD 成 UΣVᵀ,取前 k 列 U_{l,k}/V_{l,k},投影 G'_{t,l}=U_{l,k}ᵀ G_{t,l} V_{l,k}(Eq.6,压缩到低秩) → 再投到旧子空间正交补 P_{t,l}(Eq.7) → Adam(Eq.8-10) → 缩放回原维度 Ĝ=αU_{l,k}P'V_{l,k}ᵀ(Eq.11) → 更新 W(Eq.12)。
-     - *降本技巧*:全秩参数的"投影/SVD"开销大,所以**每隔固定步 T 才更新一次全秩子空间**(Algorithm 1 line 7 `t mod T==0`),其余步复用上次投影;LoRA 梯度无需维度扩展、直接更新。
+     - *降本技巧*:全秩参数的"投影/SVD"开销大,所以**每隔固定步 T 才更新一次全秩子空间**(Algorithm 1 line 7 \(t mod T==0\)),其余步复用上次投影;LoRA 梯度无需维度扩展、直接更新。
   3. **整体**:全秩补塑性、低秩保效率,二者梯度都被约束在"与旧任务正交"的低秩共享空间里 → 平衡 stability-plasticity。
 
 - **逐组件必要性(消融 Figure 4,B=baseline / L=全秩低秩投影 / S=LoRA投影 / G=完整 GORP)**:

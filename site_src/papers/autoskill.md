@@ -29,9 +29,9 @@
 ## ══ 第三层:怎么做 + 靠不靠谱 ══
 
 - **方法流水线**(§3,Fig.1,两条耦合回路):
-  1. **技能表示**:`s=(n, d, p, τ, γ, ξ, v)` = 名/描述/可执行指令 prompt/触发集/标签集/示例集/版本号。物化为 `SKILL.md`(可附 scripts/references/assets)。
-  2. **左环·技能增强回答**:① **Query Rewriting**(`Mrw`,Prw):判"延续同任务 or 切话题",把当前输入改写成一条**独立检索 query** `q̃t`,解析指代、保留任务锚点、暴露格式/风格/领域等检索关键约束。② **Hybrid Retrieval**:对每个技能算 dense `sim(emb(q̃),emb(s))` + 词法 `BM25`,各归一到[0,1]后 `Rel=λd̂+(1-λ)b̂`,按 Rel 排序取 **Top-K 且 ≥阈值 η**,无一达标则不增强直接答。③ **Skill-conditioned Generation**(`Mchat`,Pchat):把命中技能渲染成紧凑上下文 `Ct` 注入,生成 `rt`;系统策略明确"检索到的技能可能不相关,只在直接匹配当前意图时用,且永不向用户提及注入了技能"。
-  3. **右环·实时技能进化**:① **Extraction**(`Mext`,Pext):**只在用户 query 窗口** `Qt={q1..qt}` 上抽候选 `zt=(n,d,p,τ,γ,ξ,c)`(c=置信度);原则——只抽"持久可复用的约束/策略/工作流/模板",不抽一次性请求/通用任务/过期约束/模型臆造细节;去掉 case-specific 实体只留可移植规则。② **Retrieval-Assisted Management**(`Mjudge`,Pjudge):候选**不直接入库**,先按 `Relm=αd̂+(1-α)b̂` 检索 Top-M 邻居取**最相似的一个** `s*`,judge 只比"候选 vs 这一个邻居"在四轴(job-to-be-done / 交付物类型 / 硬约束-成功标准 / 工具-工作流)上的异同,输出 **add / merge / discard**(+target_id+reason);有 discard 闸过滤通用/低信号/不可移植/库已覆盖的候选。③ **Versioned Merging**(`Mmerge`,Pmerge):若 merge,做**语义并集而非拼接**(保留原能力身份、只并入可复用非冲突增量、去重、不发明新标准),版本号 `v(s')=Bump(v(s*))`。④ 更新规则:add→并入 `zt`;merge→替换 `s*` 为 `s't`;discard→不变。
+  1. **技能表示**:\(s=(n, d, p, τ, γ, ξ, v)\) = 名/描述/可执行指令 prompt/触发集/标签集/示例集/版本号。物化为 `SKILL.md`(可附 scripts/references/assets)。
+  2. **左环·技能增强回答**:① **Query Rewriting**(`Mrw`,Prw):判"延续同任务 or 切话题",把当前输入改写成一条**独立检索 query** \(q̃t\),解析指代、保留任务锚点、暴露格式/风格/领域等检索关键约束。② **Hybrid Retrieval**:对每个技能算 dense \(sim(emb(q̃),emb(s))\) + 词法 `BM25`,各归一到[0,1]后 \(Rel=λd̂+(1-λ)b̂\),按 Rel 排序取 **Top-K 且 ≥阈值 η**,无一达标则不增强直接答。③ **Skill-conditioned Generation**(`Mchat`,Pchat):把命中技能渲染成紧凑上下文 `Ct` 注入,生成 `rt`;系统策略明确"检索到的技能可能不相关,只在直接匹配当前意图时用,且永不向用户提及注入了技能"。
+  3. **右环·实时技能进化**:① **Extraction**(`Mext`,Pext):**只在用户 query 窗口** \(Qt={q1..qt}\) 上抽候选 \(zt=(n,d,p,τ,γ,ξ,c)\)(c=置信度);原则——只抽"持久可复用的约束/策略/工作流/模板",不抽一次性请求/通用任务/过期约束/模型臆造细节;去掉 case-specific 实体只留可移植规则。② **Retrieval-Assisted Management**(`Mjudge`,Pjudge):候选**不直接入库**,先按 \(Relm=αd̂+(1-α)b̂\) 检索 Top-M 邻居取**最相似的一个** `s*`,judge 只比"候选 vs 这一个邻居"在四轴(job-to-be-done / 交付物类型 / 硬约束-成功标准 / 工具-工作流)上的异同,输出 **add / merge / discard**(+target_id+reason);有 discard 闸过滤通用/低信号/不可移植/库已覆盖的候选。③ **Versioned Merging**(`Mmerge`,Pmerge):若 merge,做**语义并集而非拼接**(保留原能力身份、只并入可复用非冲突增量、去重、不发明新标准),版本号 \(v(s')=Bump(v(s*))\)。④ 更新规则:add→并入 `zt`;merge→替换 `s*` 为 `s't`;discard→不变。
   4. **训练-free 终身学习**(§3.5):全部增益来自显式技能的构造/检索/精炼,**无任何参数优化**;在线 serving 路径(检索+生成,延迟关键)与后台学习路径(抽取+维护,异步不阻塞用户)分离。
   5. **系统层**(§4):核心 artifact = `SKILL.md`,存本地 SkillBank(`Users/<id>/` 个人 + `Common/` 共享 + `vectors/` 索引缓存),三种接口——**Python SDK**(ingest/search/render_context)、**Web UI**、**OpenAI 兼容反向代理**(`/v1/chat/completions` 等,drop-in;前台检索注入、后台异步进化)。支持离线 bootstrap(导入历史对话/文档/轨迹初始化非空 SkillBank)。
 
@@ -78,7 +78,7 @@
 - 🖼 **关键图 top-2**:
 
   ![图1-AutoSkill 框架:技能增强回答(左环)+ 技能进化(右环)双耦合回路](../figures/autoskill_fig1.png)
-  这是**原文 Figure 1**(方法主图,p4)。左环=Query Rewriting→Hybrid Skill Retrieval→Skill-Conditioned Generation 出回答;右环=Skill Extraction→Skill Management Decision(add/merge/discard)→Skill Merging(版本 Bump),中央是 Skill Bank `Bᵘₜ`(版本化可复用技能 `(n,d,p,τ,γ,ζ,v)`)。选它因为一张图说清本文全部核心:**两条耦合回路 + 技能七元组表示 + add/merge/discard 决策 + 版本演进 + 全程不微调底座**,是理解该系统的唯一必读图。
+  这是**原文 Figure 1**(方法主图,p4)。左环=Query Rewriting→Hybrid Skill Retrieval→Skill-Conditioned Generation 出回答;右环=Skill Extraction→Skill Management Decision(add/merge/discard)→Skill Merging(版本 Bump),中央是 Skill Bank \(Bᵘₜ\)(版本化可复用技能 \((n,d,p,τ,γ,ζ,v)\))。选它因为一张图说清本文全部核心:**两条耦合回路 + 技能七元组表示 + add/merge/discard 决策 + 版本演进 + 全程不微调底座**,是理解该系统的唯一必读图。
 
   ![图2-从 WildChat 抽出的技能类目分布(N=1858)+ 平台提及(Fig3)](../figures/autoskill_fig2.png)
   这是**原文 Figure 2 + Figure 3**(经验分析主图,p12)。Figure 2:抽出的 1858 个技能按类目分布(编程软件开发 482 最多,写作 363,数据 AI/ML 354,通用混合 356…);Figure 3:平台相关技能集中在 Twitter/X、Instagram、YouTube。选它因为这是本文**唯一的实证证据形态**——展示该流水线确实能从真实大规模对话里抽出多样、覆盖广的技能(可行性/规模性画像),同时直观暴露本文"只统计能抽出什么、不评测抽出后好不好"的证据性质(理解其作为 system paper 定位的关键)。

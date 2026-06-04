@@ -28,12 +28,12 @@
 ══ 第三层:怎么做 + 靠不靠谱 ══
 
 - **方法流水线**(输入 q → 输出内化了修复力的策略 πθ′):
-  1. **Stage 1 — 回滚树造经验**(Algo 1):从 q 跑 rollout;**每 K 步或一失败**触发反思,策略自己产出 `(τ, e)`(回滚目标步 + 自然语言诊断-修复指令)。【原文 §3.1】
-  2. **Branching via Rollback**:`Reset(E)` + `Replay(a1:τ−1)` 把环境/历史恢复到 τ;在 e 引导下生成修正动作 `a′τ ∼ πθ(·|hτ,q,e)`,执行后继续往下跑。用**队列式 BFS** 反复展开,长成"回滚探索树",直到树深上限/预算耗尽。【原文 §3.1, Algo 1】
+  1. **Stage 1 — 回滚树造经验**(Algo 1):从 q 跑 rollout;**每 K 步或一失败**触发反思,策略自己产出 \((τ, e)\)(回滚目标步 + 自然语言诊断-修复指令)。【原文 §3.1】
+  2. **Branching via Rollback**:`Reset(E)` + \(Replay(a1:τ−1)\) 把环境/历史恢复到 τ;在 e 引导下生成修正动作 \(a′τ ∼ πθ(·|hτ,q,e)\),执行后继续往下跑。用**队列式 BFS** 反复展开,长成"回滚探索树",直到树深上限/预算耗尽。【原文 §3.1, Algo 1】
   3. **Stage 2 — 两类监督数据 + 标准 next-token SFT**:
      - **(i) Behavior Rehearsal `Lreh`**:从成功轨迹(含分支出的成功)取 (h,a) 对,模仿成功决策(拒绝采样式),**防遗忘、保底座能力**。实现:随机取 20% 成功 rollout 入 Dreh。
-     - **(ii) Experience-to-Policy Distillation `Lcf`**(核心):对每个分支事件,把 `a′τ` 作为"仅给 hτ、不给 e"的反事实目标,`Lcf = −E[log πθ′(a′τ|hτ,q)]`。每任务采 3 个反事实(分支)实例入 Dcf。
-     - **联合目标 `L(θ′) = Lcf + β·Lreh`**;batch 128、lr 1e-6、2–3 epoch。【原文 §3.2, B.3】
+     - **(ii) Experience-to-Policy Distillation `Lcf`**(核心):对每个分支事件,把 \(a′τ\) 作为"仅给 hτ、不给 e"的反事实目标,\(Lcf = −E[log πθ′(a′τ|hτ,q)]\)。每任务采 3 个反事实(分支)实例入 Dcf。
+     - **联合目标 \(L(θ′) = Lcf + β·Lreh\)**;batch 128、lr 1e-6、2–3 epoch。【原文 §3.2, B.3】
 
 - **逐组件必要性**:
   - *Lcf(反事实蒸馏)*:✔有消融(Table 4)。去掉它 = 退回 Lreh-only,Pass@128 明显掉(见上),Pass@1 基本不变 → 它专管"扩张覆盖度/修复力"。
@@ -88,7 +88,7 @@
 - 🖼 **关键图 top-2**:
 
   ![图2-LEAFE 两阶段框架(回滚树 + 经验蒸馏)](../figures/leafe_fig2.png)
-  这是**原文 Figure 2**(方法主图):左 Stage 1 画出"轨迹→反思定位红色 τ→产经验 e→回滚 BFS 树→成功轨迹";右 Stage 2 画出两条数据流(随机成功对 Dreh 做 Behavior Rehearsal + 反事实对 Dcf 做 Experience-to-Policy Distillation),底部联合损失 `L(θ′)=Lcf+βLreh`。选它因为一图说清"探索造经验→蒸馏内化"全机制,正是与 TSRD 对标的核心结构。
+  这是**原文 Figure 2**(方法主图):左 Stage 1 画出"轨迹→反思定位红色 τ→产经验 e→回滚 BFS 树→成功轨迹";右 Stage 2 画出两条数据流(随机成功对 Dreh 做 Behavior Rehearsal + 反事实对 Dcf 做 Experience-to-Policy Distillation),底部联合损失 \(L(θ′)=Lcf+βLreh\)。选它因为一图说清"探索造经验→蒸馏内化"全机制,正是与 TSRD 对标的核心结构。
 
   ![图1-Pass@k 上 GRPO 锐化 vs LEAFE 扩张](../figures/leafe_fig1.png)
   这是**原文 Figure 1**(动机/主结果图):CodeContests 上 Pass@k 曲线,**GRPO(橙)在大 k 段几乎贴着 Base(蓝)**,而 Ours/Ours+GRPO(红)整条上移并在大 k 拉开。选它因为这一张就把全文最硬的论点——"outcome-only RL 只锐化、内化修复力才扩张能力上限"——可视化坐实。

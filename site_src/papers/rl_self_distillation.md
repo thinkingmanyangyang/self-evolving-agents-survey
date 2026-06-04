@@ -4,7 +4,7 @@
 
 ══ 第一层：一眼看懂 [light] ══
 
-- 🟦 **TL;DR**：RLVR(可验证奖励 RL,如 GRPO)每次只拿到一个标量对/错奖励⇒信用分配瓶颈(不知哪个 token 错)。但很多可验证环境其实给了**富文本反馈**(runtime error、失败测试、judge 评语)。SDPO 的核心:把**"当前模型 + 把反馈塞进上下文"当作 self-teacher(自老师)**,让它**重新评估原 rollout 的逐 token 概率**,再把这个"看过反馈后的 next-token 分布"**蒸馏回策略**——`L_SDPO = Σ_t KL( π(·|x,y<t) ‖ stopgrad·π(·|x,f,y<t) )`。无需外部强老师、无额外采样(只重算 logprob),把富反馈变成稠密 logit 级信号。标量环境也能用:把同组成功 rollout 当失败尝试的"反馈"。
+- 🟦 **TL;DR**：RLVR(可验证奖励 RL,如 GRPO)每次只拿到一个标量对/错奖励⇒信用分配瓶颈(不知哪个 token 错)。但很多可验证环境其实给了**富文本反馈**(runtime error、失败测试、judge 评语)。SDPO 的核心:把**"当前模型 + 把反馈塞进上下文"当作 self-teacher(自老师)**,让它**重新评估原 rollout 的逐 token 概率**,再把这个"看过反馈后的 next-token 分布"**蒸馏回策略**——\(L_SDPO = Σ_t KL( π(·|x,y<t) ‖ stopgrad·π(·|x,f,y<t) )\)。无需外部强老师、无额外采样(只重算 logprob),把富反馈变成稠密 logit 级信号。标量环境也能用:把同组成功 rollout 当失败尝试的"反馈"。
 
 - **最巧的一步**：抽掉 **stopgrad(在 self-teacher 上停梯度)** 整个方法就垮——若不停梯度,teacher 会回退去迎合 student、忽略反馈 f,自蒸馏退化成自我强化的平凡解。stopgrad 强制 teacher 保持"已看反馈"的优势分布,梯度只更新 student 去逼近它。这正是**前向硬(用条件分布)/反向软(梯度只流 student)**的解耦结构。
 

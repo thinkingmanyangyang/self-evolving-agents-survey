@@ -34,7 +34,7 @@
   3. **宏观/Inter-Task**:对每个错误类型 e,把**不同 query 里犯了 e 的轨迹聚成一簇**,让 LLM 生成一条**跨任务通用**的错误反思 re(识别反复出现的 failure mode + 通用对策)。【原文 §3.2.1】
   4. **Reflection Merge**:把某轨迹的(微观 r + 中观 rationale z + 它命中的各类型宏观反思 re)拼起来再总结成一条 final reflection r_final。【原文 §3.2.1】
   5. **Stage II 训练**:构造 (instruction+query+背景+轨迹 → r_final) 训练对,**SFT 一个小模型(Qwen-2.5-3B,LoRA+DeepSpeed-3)**当复盘模型;推理时它看轨迹直接产反思,**不需参考答案**。【原文 §3.2.2, 附录A】
-  6. **Foresight-based Reflection(Algorithm 2,交互场景)**:每步先 `Action a_t`,再**预测用户回复 Rp**;观测真回复 Rt 后用 `LLMdiff(Rp,Rt)` 判偏差,偏差大→当场 `LLMreflect(轨迹)` 生成反馈塞回上下文继续。【原文 §3.2.3】
+  6. **Foresight-based Reflection(Algorithm 2,交互场景)**:每步先 \(Action a_t\),再**预测用户回复 Rp**;观测真回复 Rt 后用 `LLMdiff(Rp,Rt)` 判偏差,偏差大→当场 `LLMreflect(轨迹)` 生成反馈塞回上下文继续。【原文 §3.2.3】
 
 - **逐组件必要性**:
   - *跨轨迹(中观+宏观)反思*:✔有消融——Inter-Task Error Reflection(9.44%)> Reflexion(5.56%);训练后 20%(Table 1)。

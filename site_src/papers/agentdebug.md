@@ -28,8 +28,8 @@
 
 - **方法流水线**(Algo 1,AgentDebug 推理过程,输入失败轨迹 τ → 输出纠正后轨迹 τ* 或 Failure):
   1. **Stage 1 — 细粒度分析(MapToAET)**:对每步 t、每模块 m∈{mem,plan,refl,act},映射到一个 AgentErrorTaxonomy 错误类型,得到"模块级错误画像";若轨迹本就成功则直接返回。
-  2. **Stage 2 — Critical Error Detection**:在已成功则跳过;否则**逐步做反事实测试**——在每步替换一个修正动作、看 rollout 是否会成功;**critical error = 最早的、其修正能直接防止最终失败的那一步** `t* = min(T*)`;找不到则返回 Failure。
-  3. **Stage 3 — 迭代 debug + 针对性反馈**:对 t* 生成"指明错误类型 + 可操作指导"的反馈 φ,agent **从 t* 重新 rollout**(`ReRollout(τ, t*, φ)`);仍失败则 `UpdateFeedback` 细化反馈再来,最多 I 次(实现 N=5)。【原文 §3.2, Algo 1】
+  2. **Stage 2 — Critical Error Detection**:在已成功则跳过;否则**逐步做反事实测试**——在每步替换一个修正动作、看 rollout 是否会成功;**critical error = 最早的、其修正能直接防止最终失败的那一步** \(t* = min(T*)\);找不到则返回 Failure。
+  3. **Stage 3 — 迭代 debug + 针对性反馈**:对 t* 生成"指明错误类型 + 可操作指导"的反馈 φ,agent **从 t* 重新 rollout**(\(ReRollout(τ, t*, φ)\));仍失败则 `UpdateFeedback` 细化反馈再来,最多 I 次(实现 N=5)。【原文 §3.2, Algo 1】
   - **AgentErrorBench 构建**(Fig 2 pipeline):收 >500 失败轨迹做人工分析立 taxonomy → 精选 200 条(ALFWorld 100 / WebShop 50 / GAIA 50)→ 10 位专家在 decision-step 级标"错误类型 + 最小根因集"(强调标**最小根因集**而非穷举表面错),三轮 pilot 校准,Cohen's κ=0.55(substantial)。【原文 §2.2】
 
 - **逐组件必要性 / 消融**(§5.1,Fig 7):

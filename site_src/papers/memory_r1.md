@@ -29,7 +29,7 @@
 - **关键机制/公式直觉**：
   - **PPO**(Eq.2)：Memory Manager 采样操作→应用→喂给**冻结的** Answer Agent→答案对错给标量 reward→clipped PPO 更新。直觉:用"答得对吗"反向告诉 Manager"刚才那个 DELETE 是好是坏"。
   - **GRPO**(Eq.3)：每状态采 G 个候选操作/答案,用**组内标准化优势** A_i=(r_i−mean)/std,免 critic、加 KL 正则防漂移。直觉:同一道题里多个候选互相比,谁让答案更对谁优势高,省掉单独训 value 网络。
-  - **EM 奖励**(Eq.4)：`R = EM(y_pred, y_gold)`,无需人工标操作标签、可扩展。
+  - **EM 奖励**(Eq.4)：\(R = EM(y_pred, y_gold)\),无需人工标操作标签、可扩展。
   - **记忆蒸馏**：Answer Agent 不是无脑吃 60 条,而是**先选后推理**——附录 A.2 案例:问"John 住海边还是山里",原始模型被"mountaineering"干扰答"mountains",蒸馏后只挑 beach 相关记忆答对"beach"。
 - **逐组件必要性（消融 Fig 5,LLaMA-3.1-8B,F1/B1/J）**：
   - **(a) 去掉 RL Memory Manager**：PPO 41.0/32.9/57.5 → 34.5/28.1/49.0;GRPO 同样掉到 37.5/30.6/52.9 → outcome RL 比脚本控制更有效。

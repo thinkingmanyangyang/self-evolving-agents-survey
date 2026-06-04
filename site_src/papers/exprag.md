@@ -29,7 +29,7 @@
 ══ 第三层：怎么做 + 靠不靠谱 ══
 
 - **方法流水线（§3 + Figure 1）**：
-  1. **离线建经验库（once）**：收集 agent rollouts → 每条轨迹 τ 用编码器 φ(τ) 编成 key embedding → 形成索引 `{(τ_i, e_i)}`。轨迹存为**原始 chat 格式**（observation→user turn，action→assistant turn），不过滤不聚合。【原文 §3 Indexing】
+  1. **离线建经验库（once）**：收集 agent rollouts → 每条轨迹 τ 用编码器 φ(τ) 编成 key embedding → 形成索引 \({(τ_i, e_i)}\)。轨迹存为**原始 chat 格式**（observation→user turn，action→assistant turn），不过滤不聚合。【原文 §3 Indexing】
   2. **构造 query 检索**：决策步 t 用当前 context（task 描述 + 历史 h_t）编成 query → 点积最近邻取 **top-K** 轨迹。两种模式：**static**（只在 t=0 查一次，用 task 描述当 query/key）/ **dynamic**（每步重查，用部分轨迹当 query、全轨迹当 key，但要清 KV cache 重编码）。【原文 §3 + Fig1】
   3. **经验条件生成**：检索到的轨迹拼成 **memory block**（模板区分"successful/unsuccessful trajectories"）插进 system prompt → LLM policy π 在 memory + 对话历史上**自回归产出动作**。【原文 §3 + 附录 B.3】
   4. **（核心）训练期注入 = ExpRAG-LoRA**：把同一套检索 memory block 也加到**每条训练上下文**里做 LoRA SFT（仅在 assistant token 上算 CE 损失），让模型学会"靠检索轨迹解题"而非背训练目标。【原文 §4.4.2】
@@ -41,7 +41,7 @@
   - **index 组成**：mismatched（hard 任务用 easy index）变差，但仍有跨拆分增益（hard 常由 easy 子任务组成）。【原文 §4.3.1，有消融】
   - **训练期检索（ExpRAG-LoRA）**：in-distribution 与裸 LoRA 同档高位；**OOD hard 上裸 LoRA 崩、ExpRAG-LoRA 多数最强**（Table 3）。**没它**则 OOD 塌。【原文 §4.4.3 Table3，有消融】
   - **无相关轨迹时的鲁棒性**：空 index 时 ExpRAG-LoRA 掉最多（训练有检索、推理抽走=分布漂移）；保留训练 index（mismatched）比空 index 好——建议"宁可用训练经验也别完全没经验"。【原文 §4.4.4 Table4，有消融】
-- **关键机制/公式（直觉）**：核心没有花哨公式——检索是**点积最近邻 top-K**，生成是标准自回归 `π(·|m_t, c(τ)_{≤t})`，训练是**只在 assistant token 上的 CE**。最"机制性"的洞见是**多轮 chat 序列化优于逐步序列化**：把整条轨迹当一个多轮对话编码，可**跨轮复用 KV-cache**，训练快很多且性能相当（§3）。以及一个**反直觉训练动力学**：OOD 成功率常在 validation loss 已上升（常被当过拟合）之后**继续涨**，最佳 OOD checkpoint 常落在 50 epoch（远超常规 early-stop）——作者类比 **grokking / 延迟泛化**，但明确声明**只给经验观察、不claim 机制解释**。【原文 §3 / §4.4.1】
+- **关键机制/公式（直觉）**：核心没有花哨公式——检索是**点积最近邻 top-K**，生成是标准自回归 \(π(·|m_t, c(τ)_{≤t})\)，训练是**只在 assistant token 上的 CE**。最"机制性"的洞见是**多轮 chat 序列化优于逐步序列化**：把整条轨迹当一个多轮对话编码，可**跨轮复用 KV-cache**，训练快很多且性能相当（§3）。以及一个**反直觉训练动力学**：OOD 成功率常在 validation loss 已上升（常被当过拟合）之后**继续涨**，最佳 OOD checkpoint 常落在 50 epoch（远超常规 early-stop）——作者类比 **grokking / 延迟泛化**，但明确声明**只给经验观察、不claim 机制解释**。【原文 §3 / §4.4.1】
 - **实验与证据**：
   - 环境：**ALFWorld**（家居操作，二值成功；6 task-types）、**ScienceWorld**（小学科学课程，dense score∈[-1,1]，转二值；10 topics）。把每环境 task 组切成 **easy（训练）/ hard（held-out OOD）**。backbone：**Ministral-3-8B / Gemma-3-4B / Qwen2.5-7B / Qwen2.5-7B-1M**（均 instruction-tuned）。检索器 = **Qwen3-Embedding-0.6B（固定，不调）**。【原文 §4.1/§4.2/附录B】
   - **支撑核心主张的关键实验**：① **Table 3** 四 backbone × 两环境，ExpRAG-LoRA 在 OOD hard 上多数最强、裸 LoRA 崩（如 Qwen2.5-7B ALFWorld hard：LoRA 4.9 → ExpRAG-LoRA 90.2；ScienceWorld hard 同样大幅领先）。② **Table 2** 检索从 No-RAG 大幅提升（ALFWorld +60 点）。③ **Table 1b** LoRA baseline 94.1% 超 ETO/SAND/规则专家——立"先建强 baseline"。④ **Table 4** 无相关轨迹时的退化诊断。【原文 Table1/2/3/4】

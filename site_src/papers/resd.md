@@ -27,14 +27,14 @@
 
 ══ 第三层:怎么做 + 靠不靠谱 ══
 
-- **统一目标(预备)**:对每个 token v 定义似然比 `τ^t_v = πθold(v|x,y<t,c)/πθ(v|x,y<t)`,clip 到 `[ϵmin,ϵmax]` 防极端比值;统一用 **f-散度** 写匹配损失 `L_SD(θ)=E[Σ_t Σ_v πθ(v|·)·f(τ̃^t_v)]`(选不同 f 得 forward-KL / reverse-KL / JSD)。因轨迹从学生 πθ 采样,**目标天然 on-policy**。实践默认 **reverse-KL**,ϵmin=0.2、无上 clip。【原文 §2, §4.1】
+- **统一目标(预备)**:对每个 token v 定义似然比 \(τ^t_v = πθold(v|x,y<t,c)/πθ(v|x,y<t)\),clip 到 \([ϵmin,ϵmax]\) 防极端比值;统一用 **f-散度** 写匹配损失 \(L_SD(θ)=E[Σ_t Σ_v πθ(v|·)·f(τ̃^t_v)]\)(选不同 f 得 forward-KL / reverse-KL / JSD)。因轨迹从学生 πθ 采样,**目标天然 on-policy**。实践默认 **reverse-KL**,ϵmin=0.2、无上 clip。【原文 §2, §4.1】
 
 - **方法流水线**(Algo 1,每个训练步一个闭环):
-  1. **Rollout & Reward**:学生采 `y∼πθ(·|x)`,拿环境反馈 c(x,y) 与奖励 R(x,y) 判对错。
-  2. **Context Update(失败才学)**:先 `CONCISE(P)` 修剪 playbook(去 stale/有害条目);若 R<阈值(失败)→ `r ← REFLECT(x,y,c,P;θ)` 产反思并给现有 playbook 条目打 helpful/harmful/neutral 标签;`P ← CURATE(P,r;θ)` 从反思生成**非冗余**新条目;若成功 → 把解缓存进 solution buffer `B(x)←y`、置 r=∅。
+  1. **Rollout & Reward**:学生采 \(y∼πθ(·|x)\),拿环境反馈 c(x,y) 与奖励 R(x,y) 判对错。
+  2. **Context Update(失败才学)**:先 `CONCISE(P)` 修剪 playbook(去 stale/有害条目);若 R<阈值(失败)→ \(r ← REFLECT(x,y,c,P;θ)\) 产反思并给现有 playbook 条目打 helpful/harmful/neutral 标签;\(P ← CURATE(P,r;θ)\) 从反思生成**非冗余**新条目;若成功 → 把解缓存进 solution buffer \(B(x)←y\)、置 r=∅。
   3. **Enriched Teacher Prompt**:检索 B(x)(若有),拼出富化上下文 = playbook P + 反思 r + 上次轨迹 y + 反馈 c + 缓存解 B(x)。
-  4. **Policy Update**:教师 `πθold(·|x,y<t,c,r,P,B(x))` 产 token 级目标分布,学生最小化 `L_SD`;另对成功样本按"批次成功率函数"加 per-sample 权重(强化成功样本梯度,Appendix B)。
-  5. **Teacher sync**:`θold ← θ`,以 **EMA** 更新(rate 0.0001)。因 P、B 跨步持久,教师可用监督**随训练变好,即使当前批无成功示范**。【原文 §3.3, Algo 1】
+  4. **Policy Update**:教师 \(πθold(·|x,y<t,c,r,P,B(x))\) 产 token 级目标分布,学生最小化 `L_SD`;另对成功样本按"批次成功率函数"加 per-sample 权重(强化成功样本梯度,Appendix B)。
+  5. **Teacher sync**:\(θold ← θ\),以 **EMA** 更新(rate 0.0001)。因 P、B 跨步持久,教师可用监督**随训练变好,即使当前批无成功示范**。【原文 §3.3, Algo 1】
   - **Playbook 生命周期**:每条目记累计 (helpful h_j, harmful d_j) 计数;`CONCISE` 在更新前剪掉**净有害(d_j≥h_j)** 的条目,超预算 Mmax 则淘汰**最久未被标注**的(LRU 式)→ 收敛到"反复有用"的条目。【原文 §3.3, Appendix D】
 
 - **逐组件必要性**(Table 3,移除式消融,per-test-case m@4/b@4):

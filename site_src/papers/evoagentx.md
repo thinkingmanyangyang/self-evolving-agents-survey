@@ -5,7 +5,7 @@
 ══ 第一层:一眼看懂 [light] ══
 
 - 🟦 **TL;DR**:这是一个**开源平台**(不是一个新算法),专门解决"多 Agent 系统(MAS)搭起来全靠手工配、配完不会自己变强"两件事。你只给一句**高层目标描述**,它就自动**生成**一个多 Agent 工作流(谁干啥、怎么连),然后在"演化层(evolving layer)"里**把三个现成的优化算法(TextGrad / AFlow / MIPRO)塞进同一套框架**,迭代地改 agent 的 **prompt、工具配置、工作流拓扑**,用内置 benchmark 自动评测打分、反馈再改。它把"造 MAS → 跑 → 评 → 进化优化"做成一条端到端流水线。【原文 Abstract、§3、Fig.1】
-- **最巧的一步(抽掉就垮)**:**把"workflow 表示成有向图 W=(V,E)+ 把异构优化器统一成 `X(t+1)=O(X(t), E)` 同一接口"**。所有优化器(TextGrad 改 prompt、AFlow 改拓扑、MIPRO 调指令/示例)都被抽象成"读评测反馈 E、输出新一代配置"的算子 O,作用在 prompt / θ / 图结构 / 记忆四个对象上(公式 3–6)。抽掉这个统一抽象,EvoAgentX 就退回成"把几个互不兼容的优化脚本拼在一起",失去"在同一平台上一致地应用/比较"的核心卖点(§2.2 痛点正是"fragmented toolchains")。
+- **最巧的一步(抽掉就垮)**:**把"workflow 表示成有向图 W=(V,E)+ 把异构优化器统一成 \(X(t+1)=O(X(t), E)\) 同一接口"**。所有优化器(TextGrad 改 prompt、AFlow 改拓扑、MIPRO 调指令/示例)都被抽象成"读评测反馈 E、输出新一代配置"的算子 O,作用在 prompt / θ / 图结构 / 记忆四个对象上(公式 3–6)。抽掉这个统一抽象,EvoAgentX 就退回成"把几个互不兼容的优化脚本拼在一起",失去"在同一平台上一致地应用/比较"的核心卖点(§2.2 痛点正是"fragmented toolchains")。
 
 ---
 
@@ -25,14 +25,14 @@
 
 ### 方法流水线(五层模块化架构,Fig.1)——输入"高层目标" → 输出"持续优化的 MAS"
 1. **Basic Component Layer(基础层)**:配置管理(YAML/JSON 校验)、日志、文件/状态处理、存储(缓存+checkpoint,保证可复现);通过 **OpenRouter / LiteLLM** 接入各家 LLM。这是"水电煤"。
-2. **Agent Layer(Agent 层)**:每个 Agent 形式化为 `a_i = ⟨LLM_i, Mem_i, {Act_i^(j)}⟩`(公式1)——一个 LLM + 记忆模块 + 一组动作(每个动作 = prompt 模板 + 输入输出格式 + 可选工具集成)。
+2. **Agent Layer(Agent 层)**:每个 Agent 形式化为 \(a_i = ⟨LLM_i, Mem_i, {Act_i^(j)}⟩\)(公式1)——一个 LLM + 记忆模块 + 一组动作(每个动作 = prompt 模板 + 输入输出格式 + 可选工具集成)。
 3. **Workflow Layer(工作流层)**:工作流建模为**有向图 W=(V,E)**(公式2)。节点 = WorkFlowNode(任务 + 输入输出 + 关联 Agent + 状态 PENDING/RUNNING/COMPLETED/FAILED),节点可装"一组 Agent(运行时动态选最优动作)"或"ActionGraph(显式操作序列)";边 = 任务依赖/执行序/优先级权重。提供两种:**WorkFlowGraph**(灵活,自定义节点/边/条件分支/并行)与 **SequentialWorkFlowGraph**(简化,自动按 I/O 依赖推图,免手工连)。
 4. **Evolving Layer(演化层,核心)**:三个优化器,统一"读反馈 E → 出下一代"接口:
-   - **Agent optimizer**:`(Prompt^(t+1), θ^(t+1)) = O_agent(Prompt^(t), θ^(t), E)`(公式3),用 **TextGrad + MIPRO** 改 prompt 模板/工具配置/动作策略(梯度式 prompt 调优 + ICL + 偏好引导精炼)。
-   - **Workflow optimizer**:`W^(t+1) = O_workflow(W^(t), E)`(公式4),用 **SEW + AFlow** 重排节点、改依赖、探索替代执行策略(受任务性能信号 + 收敛准则指引)。
-   - **Memory optimizer**:`M_i^(t+1) = O_memory(M_i^(t), E)`(公式5),目标做选择性保留/动态剪枝/优先级检索——**原文明示"remains under active development"(还在开发中)**。
-5. **Evaluation Layer(评测层)**:`P = T(W, D)`(公式6),两种评测器——**task-specific evaluator**(对 ground-truth 算 F1/pass@1/solve rate,内置 HotPotQA/MBPP/MATH 等)+ **LLM-based evaluator**(LLM 做定性/一致性/动态准则评判)。
-   - **整条闭环 = 目标描述→自动生成 W→执行→评测层出 E→演化层据 E 改 prompt/拓扑/(记忆)→再评**,这正是综述锚里 `f(Π,τ,r)=Π′` 的工程落地:**改的是 Π 的 Γ(拓扑)/C(prompt+memory)/W(工具配置),不改 ψ(LLM 权重)**。
+   - **Agent optimizer**:\((Prompt^(t+1), θ^(t+1)) = O_agent(Prompt^(t), θ^(t), E)\)(公式3),用 **TextGrad + MIPRO** 改 prompt 模板/工具配置/动作策略(梯度式 prompt 调优 + ICL + 偏好引导精炼)。
+   - **Workflow optimizer**:\(W^(t+1) = O_workflow(W^(t), E)\)(公式4),用 **SEW + AFlow** 重排节点、改依赖、探索替代执行策略(受任务性能信号 + 收敛准则指引)。
+   - **Memory optimizer**:\(M_i^(t+1) = O_memory(M_i^(t), E)\)(公式5),目标做选择性保留/动态剪枝/优先级检索——**原文明示"remains under active development"(还在开发中)**。
+5. **Evaluation Layer(评测层)**:\(P = T(W, D)\)(公式6),两种评测器——**task-specific evaluator**(对 ground-truth 算 F1/pass@1/solve rate,内置 HotPotQA/MBPP/MATH 等)+ **LLM-based evaluator**(LLM 做定性/一致性/动态准则评判)。
+   - **整条闭环 = 目标描述→自动生成 W→执行→评测层出 E→演化层据 E 改 prompt/拓扑/(记忆)→再评**,这正是综述锚里 \(f(Π,τ,r)=Π′\) 的工程落地:**改的是 Π 的 Γ(拓扑)/C(prompt+memory)/W(工具配置),不改 ψ(LLM 权重)**。
 - **逐组件必要性 & 消融**:本文是 **demo/system 论文,无消融实验**。各层"必要性"靠架构论证而非 ablation 证明。Memory optimizer **自承未完成**,因此"记忆进化"这一支在本版本里基本是占位。【推断:论文未给任何去层/去优化器的对照,无法证明每层不可或缺,标出】
 
 ### 关键机制/直觉
