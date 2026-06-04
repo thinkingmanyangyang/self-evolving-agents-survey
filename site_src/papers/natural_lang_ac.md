@@ -17,20 +17,20 @@
 - **与最近邻工作的 Δ**:① 与 **NLRL(Feng'25)** 的 Δ(最关键):NLRL value=on-policy 轨迹 in-context 聚合 + 动作枚举蒸馏;NLAC value=**TD-bootstrap 的 language successor model(单步转移即可,off-policy)** + **refinement-policy 蒸馏**(不枚举)。Δ=把"未来"从"反复采的完整 on-policy 轨迹"换成"可 TD 回填的紧凑语言摘要",这一步让语言 critic 第一次 scalable+off-policy(Table1:NLRL 在 τ-bench 明显更差,且 NLRL 实际多看 4× 样本)。② 与 **scalar actor-critic / SAC** 的 Δ:NLAC 的 policy improvement 形式上类比 SAC 的"把 target policy 投影回 base"(Eq.5),但 target 不是用 value 参数化(需枚举动作,intractable),而是**直接用 refinement policy 当 target**。③ 与 **distributional RL(C51)** 的 Δ:借了"distributional Bellman backup 用单步样本可 off-policy"的思想,但把"return 分布"换成"未来 rollout 的文字描述分布"。【原文 §2/§4.1/§4.2】
 
 ══ 第三层:怎么做 + 靠不靠谱 ══
-- **方法流水线**(Alg.1,一个 LLM M_θ 用不同 prompt 同时当 policy/successor/evaluator/refinement;输入 replay buffer 转移 → 输出改进后的 policy):
-  1. **采样存 buffer**:用 πθ 采 (s_t,a_t,r_t,s_{t+1}) 存 replay D(off-policy 来源);
-  2. **policy evaluation — 训 language successor model M^π**:M^π(·|s,a) 概率生成"未来 rollout (s,a)_{t+1:T} + 终态 reward 的紧凑文字摘要";用 **language Bellman backup B_L** 做 target——B_L 把"立即下一状态 s_{t+1}"与"bootstrap 出的未来摘要 d_{t+1}"组合成一条新摘要,且**对未来摘要"折扣"**(更强调立即下一步);训练目标 L1 = 反向 KL(B_L M_θ̄ ‖ M_θ),θ̄ 是参数的 **EMA**(防 generative collapse),选反向 KL 是为捕捉未来的多样性;
-  3. **生成 critique**:language evaluator E 把 k 条未来摘要 d⁽¹⁾..d⁽ᵏ⁾ 塞 in-context,聚合成"该动作多好+为什么"的文字 Q^π_L(s,a)(这步 LLM 零样本就会,无需训);
-  4. **policy improvement — 从 refinement policy 蒸馏**:refinement policy π_r 读 (s,a, Q^π_L(s,a)) 生成更好的 a^r;训练目标 L2 = −log πθ(a^r|s_t)(把 π_r 当教师做蒸馏);
-  5. **默认 k=1, m=1**(单条未来摘要、单轮精修)即够,m→∞ 趋近贪心最优。【原文 §4/§5/Alg.1】
+- **方法流水线**(Alg.1,一个 LLM \(M_θ\) 用不同 prompt 同时当 policy/successor/evaluator/refinement;输入 replay buffer 转移 → 输出改进后的 policy):
+  1. **采样存 buffer**:用 \(πθ\) 采 \((s_t,a_t,r_t,s_{t+1})\) 存 replay D(off-policy 来源);
+  2. **policy evaluation — 训 language successor model \(M^π\)**:\(M^π(·|s,a)\) 概率生成"未来 rollout \((s,a)_{t+1:T}\) + 终态 reward 的紧凑文字摘要";用 **language Bellman backup B_L** 做 target——B_L 把"立即下一状态 \(s_{t+1}\)"与"bootstrap 出的未来摘要 \(d_{t+1}\)"组合成一条新摘要,且**对未来摘要"折扣"**(更强调立即下一步);训练目标 \(L_1 = \) 反向 \(\text{KL}(B_L M_{\bar θ} ‖ M_θ)\),\(\bar θ\) 是参数的 **EMA**(防 generative collapse),选反向 KL 是为捕捉未来的多样性;
+  3. **生成 critique**:language evaluator E 把 k 条未来摘要 \(d⁽¹⁾..d⁽ᵏ⁾\) 塞 in-context,聚合成"该动作多好+为什么"的文字 \(Q^π_L(s,a)\)(这步 LLM 零样本就会,无需训);
+  4. **policy improvement — 从 refinement policy 蒸馏**:refinement policy \(π_r\) 读 \((s,a, Q^π_L(s,a))\) 生成更好的 \(a^r\);训练目标 \(L_2 = −\log πθ(a^r|s_t)\)(把 \(π_r\) 当教师做蒸馏);
+  5. **默认 \(k=1, m=1\)**(单条未来摘要、单轮精修)即够,\(m→∞\) 趋近贪心最优。【原文 §4/§5/Alg.1】
 - **逐组件必要性 + 消融**:
   · **language successor model(TD 学未来摘要)**:核心。消融 = **Self-Distillation**(去掉 successor model,refinement 直接 condition 在 4 条 on-policy rollout 上,Reflexion 式)。Table1:Self-Distillation 在长复杂 rollout 任务上很差(20Q QwQ 26.8、τ-retail 0.35,远低于 NLAC 32.1/0.56)→证明"学紧凑未来摘要"不可或缺。【原文 §6.2 Table1】
   · **refinement-policy 蒸馏(不枚举动作)**:核心。消融 = **NLQL**(去掉 refinement,改 Q-learning:采 4 个动作蒸馏 value 最高那个)。Table1:NLQL 比 Self-Distillation 好但仍逊于 NLAC→证明"采样多动作探索动作空间不如 refinement policy 用 critic 输出定向改"。【原文 §6.2 Table1】
-  · **反向 KL + EMA 参考参数(θ̄)**:防 generative collapse(模型自蒸馏式训练崩塌);属稳定性组件,无单独消融但有机理说明(引 Shumailov'24)。【原文 §5.2】
-  · **k(未来摘要数)/m(精修轮数)**:默认 k=m=1;作者称更随机环境可能要更大 k(未做系统 sweep)。【原文 §6.2】
-- **关键机制直觉**:language Bellman backup 的精髓——传统 scalar Bellman 是 Q(s,a)←r+γQ(s',a');NLAC 把它**搬进文字空间**:"对 (s,a) 的未来文字摘要" ← 组合("立即下一状态 s' 的文字" + "对 s' 的 bootstrap 未来摘要,打折扣")。因为只用了**单步转移 (s,a,s')** 来回填(下一摘要由 M_θ 自己生成,不需真实采到 episode 末),所以是 **TD 而非 MC、可 off-policy**——这正是绕开 NLRL"反复采 on-policy 轨迹"的命门。successor model 与 successor features(Barreto'17)同构:都预测未来分布、都能 TD 训;差别是 successor features 线性内积出 Q,这里是 LLM 解码出文字 Q。Theorem 4.5 证明:收敛时存在单调映射 g 使 Q^π(s,a)=g(Q^π_L(s,a)),即文字 critic 能恢复真 scalar Q-function(理论兜底)。【原文 §4.1/§4.3/App A】
+  · **反向 KL + EMA 参考参数(\(\bar θ\))**:防 generative collapse(模型自蒸馏式训练崩塌);属稳定性组件,无单独消融但有机理说明(引 Shumailov'24)。【原文 §5.2】
+  · **k(未来摘要数)/m(精修轮数)**:默认 \(k=m=1\);作者称更随机环境可能要更大 k(未做系统 sweep)。【原文 §6.2】
+- **关键机制直觉**:language Bellman backup 的精髓——传统 scalar Bellman 是 \(Q(s,a)←r+γQ(s',a')\);NLAC 把它**搬进文字空间**:"对 (s,a) 的未来文字摘要" ← 组合("立即下一状态 s' 的文字" + "对 s' 的 bootstrap 未来摘要,打折扣")。因为只用了**单步转移 \((s,a,s')\)** 来回填(下一摘要由 \(M_θ\) 自己生成,不需真实采到 episode 末),所以是 **TD 而非 MC、可 off-policy**——这正是绕开 NLRL"反复采 on-policy 轨迹"的命门。successor model 与 successor features(Barreto'17)同构:都预测未来分布、都能 TD 训;差别是 successor features 线性内积出 Q,这里是 LLM 解码出文字 Q。Theorem 4.5 证明:收敛时存在单调映射 g 使 \(Q^π(s,a)=g(Q^π_L(s,a))\),即文字 critic 能恢复真 scalar Q-function(理论兜底)。【原文 §4.1/§4.3/App A】
 - **实验与证据**:三类任务——**MATH500-Hard**(单步,12k 训/500 测)、**20Q**(THINGS 1823 物体,GPT5 当 oracle,1000 训/500 测)、**τ-bench**(对话+工具,retail 2500 训、retail+airline 各 500 测,**airline 完全 OOD 不训**)。基模 **Qwen2.5-7B-Instruct 与 QwQ-32B**。**公平性**:每个微调法都训 **30,720 梯度步**、3 次独立运行取均值。核心证据:① Table1——QwQ-32B 上 NLAC 在长 horizon 任务**超过 GPT5 ReAct**(20Q 32.1 vs 30.2、τ-retail 0.56 vs 0.44、τ-airline 0.43 vs 0.32),相对标准 RL 微调在 20Q/τ-retail **+30%**;② Fig4——NLAC 比 PPO **更少梯度步收敛**(τ-airline 学习曲线,3 次独立运行)→支撑"off-policy 语言 critic 更省样本"主张;③ Fig2/Fig3 定性——20Q 里 critic 纠正"线性搜索单一特征"的次优策略;τ-bench 里 critic 精确指出"违反哪条 policy(一次只能改一次数据库)"——scalar reward 无法传达这种信息。**对照中的诚实点**:作者明说 NLRL 实际**多看 4× 样本**(因要拼 4 条 rollout),即便如此 NLRL 在 τ-bench 仍差(qualitatively NLRL 的 value 几乎总是正的→对策略改进无用,疑因 in-context 样本有限的动态建模差 + 指令模型的 sycophancy)。MATH(单步)上 NLAC 退化为"用生成式 reward model 自蒸馏",与基线持平——作者主动指出这不是它擅长的设定。**"看着强但没回答核心问题"风险**:与 GPT5 比是不同模型不同条件,更像"小模型经 NLAC 能超 frontier prompting"的展示。【原文 §6/Table1/Fig2/3/4】
-- **假设与失效边界**:【原文】① **Assumption 4.4(全序假设)**:对任一状态,各动作的语言评价 {Q^π_L(s,a)} 可映射成标量、构成全序(靠 critique 的情感正负排序);作者称"非强假设"。② §7 limitation:依赖基模"能生成可信未来 + 能靠精调 prompt 精修自身动作"的能力,**任务过复杂时会崩**;future=层次化分解复杂任务。③ App B.6 **比正文更坦白**:"我们在所有训练 run 里最终都观察到 catastrophic forgetting"(指令跟随能力退化),实验里靠**低数据量训练**规避之。【原文 §4.3/§5.2/§7/App B.6】【推断】④ 当不同动作的文字评价情感接近/不可比、或 critic 的"未来摘要"在复杂动态下失真时,贪婪/精修方向会错,off-policy 价值学习随之失效——critic 保真度被反复强调为成败关键。
+- **假设与失效边界**:【原文】① **Assumption 4.4(全序假设)**:对任一状态,各动作的语言评价 \(\{Q^π_L(s,a)\}\) 可映射成标量、构成全序(靠 critique 的情感正负排序);作者称"非强假设"。② §7 limitation:依赖基模"能生成可信未来 + 能靠精调 prompt 精修自身动作"的能力,**任务过复杂时会崩**;future=层次化分解复杂任务。③ App B.6 **比正文更坦白**:"我们在所有训练 run 里最终都观察到 catastrophic forgetting"(指令跟随能力退化),实验里靠**低数据量训练**规避之。【原文 §4.3/§5.2/§7/App B.6】【推断】④ 当不同动作的文字评价情感接近/不可比、或 critic 的"未来摘要"在复杂动态下失真时,贪婪/精修方向会错,off-policy 价值学习随之失效——critic 保真度被反复强调为成败关键。
 - **祛魅总结**:【推断】**真贡献(硬货)**:**language Bellman backup + language successor model** 是真正的算法创新——第一次让"语言空间 value learning"摆脱 on-policy in-context 聚合,做到 **off-policy、TD-bootstrap、不用 policy gradient**,并有 successor-features 联系 + 收敛性定理(Theorem 4.5)兜底;Fig3 τ-bench 的"critic 精确指出违反哪条规则"是 scalar critic 根本给不出的信号,有说服力。refinement-policy 蒸馏替代动作枚举也确实更有效(NLQL 消融为证)。**包装/可质疑**:① "超过 GPT5"是不同条件展示,非公平对比;② 全序假设(4.4)在评价情感纠缠时鲁棒性存疑,作者一句"not strong"略轻描淡写;③ **catastrophic forgetting 在所有 run 都出现、只能靠低数据量规避**(App B.6)——这其实是个不小的实用性限制,正文只一句带过,放进附录显得淡化;④ MATH 单步上无优势(诚实承认);⑤ **无开源代码**(只给伪码 Alg.1),且训练成本不低(64 GPU、<48h、30720 步)。整体算法贡献扎实,但"scalable/stable"的标语下,forgetting 与全序假设两处是被低调处理的真实软肋。
 
 🎯 **机制速览 6 轴** [light]
@@ -51,7 +51,7 @@
 这是**原文 Figure 4**:NLAC 与 PPO 三次独立运行的学习曲线,NLAC 用更少样本收敛。选它因为它直接支撑"off-policy 语言 critic 比 on-policy PG 更稳、更省样本"这一核心主张。【原文图4】
 
 ══ 假设与失效边界(一句)══
-- 【原文+推断】显式假设(Assumption 4.4):对任一状态,各动作的语言评价 {Q^π_L(s,a)} 可映射成标量、构成全序(靠 critique 的"情感正负"排序)——【原文】作者称"非强假设";【推断】但当不同动作的文字评价情感接近/不可比、或 critic 的"未来摘要"在复杂动态下失真时,贪婪/精修方向会错,off-policy 价值学习随之失效——依据:§4.2 全序假设 + critic 保真度被反复强调为 actor-critic 成败关键。
+- 【原文+推断】显式假设(Assumption 4.4):对任一状态,各动作的语言评价 \(\{Q^π_L(s,a)\}\) 可映射成标量、构成全序(靠 critique 的"情感正负"排序)——【原文】作者称"非强假设";【推断】但当不同动作的文字评价情感接近/不可比、或 critic 的"未来摘要"在复杂动态下失真时,贪婪/精修方向会错,off-policy 价值学习随之失效——依据:§4.2 全序假设 + critic 保真度被反复强调为 actor-critic 成败关键。
 
 🎯 **对"探索-巩固"idea 对标**(一句)[light]
 - **可借组件 / 竞品**:NLAC 把"语言空间的丰富反馈(why + 未来后果)"做成可 TD-bootstrap、off-policy 的训练信号,并用 **refinement-policy → base-policy 的蒸馏** 完成策略改进——这与本项目"教师脚手架推理蒸馏(TSRD)"在"用语言级指导改进策略 + 蒸馏沉淀"上同构,其 **language successor model(把未来压成可回填摘要)** 可作"MTP 前瞻探针"的语言版替代积木;同时它代表"off-policy 价值学习"路线,与本项目若走 on-policy 蒸馏可形成对照/互补。

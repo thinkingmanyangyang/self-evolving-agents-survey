@@ -28,8 +28,8 @@
 
 - **方法流水线**（§2，配 Figure 2/3，把 GRPO 一一对应改写）：
   1. **初始化**：参数 θ 永久冻结；外部经验库 E ← ∅。
-  2. **Rollout & Reward**：给 query q，并行采样一组 G 个输出 \({o_1..o_G}\)，但**策略条件在经验库上** \(π_θ(o_i|q,E)\)（不是 π_θ(o_i|q)）；用 reward model R 给每个 o_i 打标量 r_i。（与 GRPO 完全一致,只多了 E 这个条件）
-  3. **语义优势计算（核心）**：只对"组内既有明显赢家又有输家"的组生成优势（因为 std(r)=0 时 GRPO 的 Â 也=0）。先让 LLM M 对每个 o_i 单独写摘要 \(s_i=M(p_summary,q,o_i)\)；再给定全部摘要 + 当前 E,让 M 讲清相对成败原因并抽出一条简洁自然语言经验 \(A_text=M(p_extract,q,{s_i},E)\)——这条 A_text 就是语义优势,功能等价于 GRPO 的 Â_i。
+  2. **Rollout & Reward**：给 query q，并行采样一组 G 个输出 \({o_1..o_G}\)，但**策略条件在经验库上** \(π_θ(o_i|q,E)\)（不是 \(π_θ(o_i|q)\)）；用 reward model R 给每个 o_i 打标量 r_i。（与 GRPO 完全一致,只多了 E 这个条件）
+  3. **语义优势计算（核心）**：只对"组内既有明显赢家又有输家"的组生成优势（因为 \(std(r)=0\) 时 GRPO 的 \(Â\) 也 \(=0\)）。先让 LLM M 对每个 o_i 单独写摘要 \(s_i=M(p_summary,q,o_i)\)；再给定全部摘要 + 当前 E,让 M 讲清相对成败原因并抽出一条简洁自然语言经验 \(A_text=M(p_extract,q,{s_i},E)\)——这条 A_text 就是语义优势,功能等价于 GRPO 的 Â_i。
   4. **优化（更新经验库,不更新参数）**：给定全 batch 的 A_text 和现有 E,提示 LLM 生成一组操作 {**Add** 追加 / **Delete** 删低质 / **Modify** 精炼已有 / **Keep** 不变},把 E 更新到 E'。
   5. **下一轮**：条件策略 \(π_θ(y|q,E')\) 在后续 batch/epoch 产生"被移向高 reward"的偏移分布——等效一次 GRPO 策略更新,但靠改 context 而非改参数。
 - **逐组件必要性（消融 Table 2，做得相当扎实）**：
@@ -47,9 +47,9 @@
   - **"看着强但没答核心问题"的隐患**【推断】:数学绝对增益(+2.7~+5.4)其实不算大,真正的故事在**跨域不掉分**(Table 6)和**成本**;若只看单域提升会高估方法。
 - **假设与失效边界**：
   - 【原文】**强依赖底座模型能力**:同方法用在 QwQ-32B 上 WebWalker 仅 25.5% pass@1,**甚至低于其 ReAct 基线 27.5%**(§3.2)——"模型能力是经验式优化的前提",**弱模型上会反噬**。这是论文自己点破的最重要失效边界。
-  - 【原文】语义优势**只在组内有赢有输时生成**(std(r)≠0)——全对/全错的组学不到东西;依赖 reward model 能区分质量。
+  - 【原文】语义优势**只在组内有赢有输时生成**\((std(r)≠0)\)——全对/全错的组学不到东西;依赖 reward model 能区分质量。
   - 【推断】经验库进 prompt → **随经验增多吃 context、增推理 token 成本**;ADD/DELETE/MODIFY/KEEP 由 LLM 自主决策,**无显式去重/容量上界/冲突消解的形式化保证**,长期库治理质量靠 LLM 自觉(论文未给库规模随 epoch 的增长曲线〔待核〕)。
-  - 【推断】只测了 3 epoch、≤100 样本的小规模"训练";更多数据/更长迭代下是否继续涨、会不会经验互相打架,未验证。
+  - 【推断】只测了 3 epoch、\(≤100\) 样本的小规模"训练";更多数据/更长迭代下是否继续涨、会不会经验互相打架,未验证。
 - **祛魅总结**：
   - **真贡献(硬货)**:① 把 GRPO 完整结构(group rollout / 多 epoch / KL 锚)**忠实平移到 context 空间**,用"语义优势 + 库操作"替代"数值优势 + 梯度",概念优雅且工程可落地(有开源);② Table 6 的跨域不掉分 + 2 个数量级成本下降是实打实的实用价值;③ 消融充分(group/GT/直接生成三组对照),把"为什么有效"讲清楚了。
   - **包装/可能高估**【推断】:(a) 名字叫"GRPO"但**没有梯度、没有 clip、没有真正的 KL 散度计算**——是"GRPO 的隐喻/结构借用",严格说是一种**有组织的经验库 ICL**,而非 GRPO 算法本身;(b) "outperforms fine-tuned 32B"成立但建立在"用 671B 大模型"上,是模型规模 + 经验的合力,不能简单归功于方法;(c) 强依赖强底座(QwQ 反例),"training-free"的普惠性被高估——它更像"给已经很强的大模型再榨一点专业域性能"。
@@ -88,7 +88,7 @@
 
 ### 🖼 关键图 top-2
 ![图1-Vanilla GRPO vs Training-Free GRPO 的逐模块对照](../figures/training_free_grpo_fig1.png)
-- 这是**原文 Figure 2**(方法主图)。(a) Vanilla GRPO:policy→reward model→Group Computation 出**数值优势 A_1..A_G**→反向更新 policy 参数;(b) Training-Free GRPO:policy **条件在 experiences 上**→reward→两个 LLM(summarize/extract)产出**语义优势 A_text**→**controller 用 ADD/DELETE/MODIFY/KEEP 更新经验库**(橙色 Update 回流到 experiences 而非 policy)。**选它**:一图说清"把梯度更新替换成经验库文本操作"这一核心创新,是抽取 6 轴(改什么/免梯度/生命周期)的唯一依据图。
+- 这是**原文 Figure 2**(方法主图)。(a) Vanilla GRPO:policy→reward model→Group Computation 出**数值优势 \(A_1..A_G\)**→反向更新 policy 参数;(b) Training-Free GRPO:policy **条件在 experiences 上**→reward→两个 LLM(summarize/extract)产出**语义优势 \(A_{text}\)**→**controller 用 ADD/DELETE/MODIFY/KEEP 更新经验库**(橙色 Update 回流到 experiences 而非 policy)。**选它**:一图说清"把梯度更新替换成经验库文本操作"这一核心创新,是抽取 6 轴(改什么/免梯度/生命周期)的唯一依据图。
 
 ![图2-一次Training-Free GRPO学习步的具体例子(Question→组内Rollout→Summarization→语义Advantage)](../figures/training_free_grpo_fig2.png)
 - 这是**原文 Figure 3**(机制实例图)。横向四栏展示一次学习步:Question → 组内 3 条 Rollout(有对有错) → 各自 Summarization → 右侧 Group Computation 提炼出**自然语言的 advantage/经验**(如"做几何题要先验证解落在区间内")。**选它**:把抽象的"语义优势"落到可读实例,直观回答"LLM 到底从组内对比里学到一条什么样的经验",是理解方法"为什么不是普通 ICL"的关键。

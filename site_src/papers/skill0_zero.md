@@ -6,9 +6,9 @@
 
 ## ══ 第一层:一眼看懂 ══
 
-- 🟦 **TL;DR**:Agent skills(结构化的程序性知识包,推理时动态加载)是当前增强 LLM agent 的标准机制,但**推理期技能增强有三宗罪**:① 检索噪声引入无关/误导指南;② 注入的技能内容**逐轮累积 token 开销**,限制扩展;③ 最致命——**照 prompt 执行技能 ≠ 学会技能**,能力在 context 不在模型。SKILL0 的问题转向:能不能把技能**内化进参数**,让推理时**不再需要检索**?做法:① **离线 Relevance-Driven Skill Grouping**——把技能库按类别组织成 SkillBank={S_k}(每个 .md 文件一组同类技能),并把验证集切成与每个 S_k 对齐的子任务 T_k;② **In-Context RL**——训练 rollout 时把"历史 h_t + 选中的技能子集 S"**渲染成一张紧凑 RGB 图**(压缩比 c_t 由策略自生成),视觉编码器压成 visual context 喂策略,GRPO 优化任务成功 + 压缩效率的复合奖励;③ **Helpfulness-Driven Dynamic Curriculum**——每 d 步算每个 S_k 的 helpfulness ∆k=Acc(带 S_k)−Acc(不带),只保留 ∆k>0 的、按 ∆k 排序取 top-M(s),技能预算 M 线性退火([6,3,0])直到 S=∅、agent 全 zero-shot。结果:3B 上 ALFWorld 87.9 / Search-QA 40.8 / WebShop 78.6,**无技能推理**却超 AgentOCR +9.7/+6.6/+10.1,且每步 <0.5k token(比 SkillRL 省 5×)。
+- 🟦 **TL;DR**:Agent skills(结构化的程序性知识包,推理时动态加载)是当前增强 LLM agent 的标准机制,但**推理期技能增强有三宗罪**:① 检索噪声引入无关/误导指南;② 注入的技能内容**逐轮累积 token 开销**,限制扩展;③ 最致命——**照 prompt 执行技能 ≠ 学会技能**,能力在 context 不在模型。SKILL0 的问题转向:能不能把技能**内化进参数**,让推理时**不再需要检索**?做法:① **离线 Relevance-Driven Skill Grouping**——把技能库按类别组织成 \(SkillBank=\{S_k\}\)(每个 .md 文件一组同类技能),并把验证集切成与每个 \(S_k\) 对齐的子任务 \(T_k\);② **In-Context RL**——训练 rollout 时把"历史 h_t + 选中的技能子集 S"**渲染成一张紧凑 RGB 图**(压缩比 c_t 由策略自生成),视觉编码器压成 visual context 喂策略,GRPO 优化任务成功 + 压缩效率的复合奖励;③ **Helpfulness-Driven Dynamic Curriculum**——每 d 步算每个 \(S_k\) 的 helpfulness \(∆k=Acc(带 S_k)−Acc(不带)\),只保留 \(∆k>0\) 的、按 \(∆k\) 排序取 top-M(s),技能预算 M 线性退火([6,3,0])直到 \(S=∅\)、agent 全 zero-shot。结果:3B 上 ALFWorld 87.9 / Search-QA 40.8 / WebShop 78.6,**无技能推理**却超 AgentOCR +9.7/+6.6/+10.1,且每步 <0.5k token(比 SkillRL 省 5×)。
 
-- **最巧的一步**:**"helpfulness ∆k=Acc(w/ skill)−Acc(w/o skill) 驱动的逐技能退火课程"**(Algorithm 1 的 Filter→Rank→Select)。抽掉它就垮:消融 Table 3,**w/o Rank(随机选)直接崩到 62.9(∆=−13.7)**,Fixed-Full / [6,6,6] 在撤技能时**塌 −12.3/−13.3**,而 ∆k 课程反而 **+1.6**。精妙在 ∆k 是个**自指的内化探针**——技能一旦被内化进参数,Acc(w/o)就追上 Acc(w),∆k 自然→0,被正性过滤**自动淘汰**(附录 A.2 给了自配速课程的理论),所以"何时撤哪个技能"完全数据驱动、无需手设时间表。
+- **最巧的一步**:**"helpfulness \(∆k=Acc(w/ skill)−Acc(w/o skill)\) 驱动的逐技能退火课程"**(Algorithm 1 的 Filter→Rank→Select)。抽掉它就垮:消融 Table 3,**w/o Rank(随机选)直接崩到 62.9(∆=−13.7)**,Fixed-Full / [6,6,6] 在撤技能时**塌 −12.3/−13.3**,而 ∆k 课程反而 **+1.6**。精妙在 ∆k 是个**自指的内化探针**——技能一旦被内化进参数,Acc(w/o)就追上 Acc(w),∆k 自然→0,被正性过滤**自动淘汰**(附录 A.2 给了自配速课程的理论),所以"何时撤哪个技能"完全数据驱动、无需手设时间表。
 
 ---
 
@@ -20,7 +20,7 @@
 - **动机链**:推理期注入技能有效但能力不进参数 → 朴素 RL 两头不讨好(无技能 context 则缺结构指南学不动复杂多步行为;全程满技能则模型永远依赖外部知识、从不被迫内化)→ 需要一个**"始于有技能、终于无技能"**、系统地把能力从 context 搬进参数的训练 regime → ICRL(训练给、推理撤)+ 动态课程(按 helpfulness 逐技能退火)→ 再叠 context rendering 解决"扩域时 token 爆炸"。为什么不用更简单法:固定 few-shot 注入(能力不进参数);固定满技能训练(撤了就塌,Fig.7/8 证)。
 - **与最近邻的 Δ**:
   - vs **SkillRL / EvolveR**(skill-augmented RL):它们推理时仍带技能、把"带技能性能"当目标;SKILL0 **推理时零技能**,把"内化"当显式目标——这是范式级差异(Fig.1)。SKILL0 甚至复用 SkillRL 的 SkillBank 初始化。
-  - vs **AgentOCR**(Feng 2026,最近邻 + 直接基线):AgentOCR 提供了 **context rendering / 视觉自压缩**的底座(把历史压成图、复合奖励含 ln(c_t)),SKILL0 **沿用这套压缩机制**,但**新增"技能 + 动态课程内化"**那一层。所以 SKILL0 vs AgentOCR 的增益(+9.7/+6.6/+10.1)恰恰隔离出"技能内化"的纯贡献(同样视觉压缩、同样 zero-shot 推理协议)。
+  - vs **AgentOCR**(Feng 2026,最近邻 + 直接基线):AgentOCR 提供了 **context rendering / 视觉自压缩**的底座(把历史压成图、复合奖励含 \(ln(c_t)\)),SKILL0 **沿用这套压缩机制**,但**新增"技能 + 动态课程内化"**那一层。所以 SKILL0 vs AgentOCR 的增益(+9.7/+6.6/+10.1)恰恰隔离出"技能内化"的纯贡献(同样视觉压缩、同样 zero-shot 推理协议)。
   - vs **GRPO**(纯 RL):GRPO 无技能脚手架,早期探索弱、收敛早停(Fig.5c plateau);SKILL0 借技能脚手架探索、持续提升到更高上界。
 
 ---
@@ -28,11 +28,11 @@
 ## ══ 第三层:怎么做 + 靠不靠谱 ══
 
 - **方法流水线**(§3,Fig.2):
-  1. **Agent Loop / 任务设定**(§3.1):序贯决策,π_θ(a_t|I,h_t),h_t={o_1..o_t},环境转移 o_{t+1}=E(o_t,a_t),直到成功或步数上限。
-  2. **Skill Management**:分层 SkillBank——**General skills**(跨任务通用策略,如探索/目标追踪启发式)+ **Task-specific skills**(类别 k 的专门动作序列/前置条件);目录结构 `skills/{task}/{category}.md`,共 N 个文件。训练时**不按语义相似度检索单条技能**,而是按 **on-policy helpfulness** 选 m 个技能文件子集 S⊆SkillBank。
-  3. **Context Rendering(独门效率机制,§3.1)**:把文本 context(历史 h_t + 选中技能 S)映射成**紧凑 RGB 图**,视觉编码器 Enc 压成 V_t=Enc(h_t,S;c_t)∈R^d 喂策略。**压缩比 c_t 不是固定超参,而是策略每步自生成**:(a_t,c_t)∼π_θ(a_t,c_t|I,V_t)。→ 大幅降 token,同时保结构信息。
-  4. **In-Context RL(ICRL,§3.2)**:复合奖励 r̃_t=r_t+λ·r_comp,其中 r_comp=ln(c_t)·[成功]——成功时奖励更高压缩(对数反映边际递减),失败给 0;联合优化任务成功 + 压缩效率。目标 = **标准 GRPO**(group-normalized advantage + PPO clip + KL-to-ref,Eq.5)。
-  5. **Adaptive Curriculum(§3.3,Algorithm 1,核心)**:技能预算 M 沿 **NS 个阶段线性退火**(Eq.6):|S^(s)|≤M^(s)=⌈N·(NS−s)/(NS−1)⌉,ALFWorld 实例化为 **[6,3,0]**(NS=3),保证每阶段最多撤 ⌈N/(NS−1)⌉ 个技能 → context 分布平滑过渡(附录 A.1 给稳定性界:NS 够大则 GRPO 保单调改进)。每 d 步:对每个 T_k 算 ∆k=Acc(π,T_k,带 S_k)−Acc(π,T_k,∅)→ **Filter**(留 ∆k>0)→ **Rank**(按 ∆k 降序)→ **Select** top-M^(s);M^(s)=0 时 S=∅(全 zero-shot)。
+  1. **Agent Loop / 任务设定**(§3.1):序贯决策,\(π_θ(a_t|I,h_t)\),\(h_t=\{o_1..o_t\}\),环境转移 \(o_{t+1}=E(o_t,a_t)\),直到成功或步数上限。
+  2. **Skill Management**:分层 SkillBank——**General skills**(跨任务通用策略,如探索/目标追踪启发式)+ **Task-specific skills**(类别 k 的专门动作序列/前置条件);目录结构 `skills/{task}/{category}.md`,共 N 个文件。训练时**不按语义相似度检索单条技能**,而是按 **on-policy helpfulness** 选 m 个技能文件子集 \(S⊆SkillBank\)。
+  3. **Context Rendering(独门效率机制,§3.1)**:把文本 context(历史 h_t + 选中技能 S)映射成**紧凑 RGB 图**,视觉编码器 Enc 压成 \(V_t=Enc(h_t,S;c_t)∈R^d\) 喂策略。**压缩比 \(c_t\) 不是固定超参,而是策略每步自生成**:\((a_t,c_t)∼π_θ(a_t,c_t|I,V_t)\)。→ 大幅降 token,同时保结构信息。
+  4. **In-Context RL(ICRL,§3.2)**:复合奖励 \(r̃_t=r_t+λ·r_{comp}\),其中 \(r_{comp}=ln(c_t)·[成功]\)——成功时奖励更高压缩(对数反映边际递减),失败给 0;联合优化任务成功 + 压缩效率。目标 = **标准 GRPO**(group-normalized advantage + PPO clip + KL-to-ref,Eq.5)。
+  5. **Adaptive Curriculum(§3.3,Algorithm 1,核心)**:技能预算 M 沿 **NS 个阶段线性退火**(Eq.6):\(|S^{(s)}|≤M^{(s)}=⌈N·(NS−s)/(NS−1)⌉\),ALFWorld 实例化为 **[6,3,0]**(NS=3),保证每阶段最多撤 \(⌈N/(NS−1)⌉\) 个技能 → context 分布平滑过渡(附录 A.1 给稳定性界:NS 够大则 GRPO 保单调改进)。每 d 步:对每个 \(T_k\) 算 \(∆k=Acc(π,T_k,带 S_k)−Acc(π,T_k,∅)\)→ **Filter**(留 \(∆k>0\))→ **Rank**(按 \(∆k\) 降序)→ **Select** \(top\text{-}M^{(s)}\);\(M^{(s)}=0\) 时 \(S=∅\)(全 zero-shot)。
   6. **推理**:**完全撤技能**,只用内化进参数的能力,zero-shot 跑。
 
 - **逐组件必要性**(消融):
@@ -42,7 +42,7 @@
   - **Validation interval d**:d=10 最优(d=5 边际增益但开销大,d=20 适配慢、ALFWorld 掉到 78.1,Table 4)。
   - 三步课程 + 预算 + 间隔均有消融;**context rendering 本身未单独消融**(继承自 AgentOCR,但 AgentOCR 作为基线间接对照)。
 
-- **关键机制直觉**:技能是**"暂时的脚手架"**(transient scaffolding)。helpfulness ∆k 像"血氧探针"——只要"吸氧(带技能)"还比"自主呼吸(不带)"明显好,就保留;一旦自主呼吸追上(∆k→0),说明已内化,自动撤掉。Fig.6 的 **rise-then-fall** 曲线是全文最漂亮的实证:早期 ∆k 低(策略还不会用技能 prompt)→ 中期升(学会 grounding 到技能)→ 后期课程压预算逼内化、∆k 回落到 0。附录 A.2 把这写成"自配速课程 + 子模性 greedy 选择(1−e^−α 近似)"的理论。context rendering 的直觉:与其把技能/历史当长文本撑爆窗口,不如压成图——视觉 token 密度高,策略还能自调压缩率。
+- **关键机制直觉**:技能是**"暂时的脚手架"**(transient scaffolding)。helpfulness ∆k 像"血氧探针"——只要"吸氧(带技能)"还比"自主呼吸(不带)"明显好,就保留;一旦自主呼吸追上(∆k→0),说明已内化,自动撤掉。Fig.6 的 **rise-then-fall** 曲线是全文最漂亮的实证:早期 ∆k 低(策略还不会用技能 prompt)→ 中期升(学会 grounding 到技能)→ 后期课程压预算逼内化、∆k 回落到 0。附录 A.2 把这写成"自配速课程 + 子模性 greedy 选择(\(1−e^{−α}\) 近似)"的理论。context rendering 的直觉:与其把技能/历史当长文本撑爆窗口,不如压成图——视觉 token 密度高,策略还能自调压缩率。
 
 - **实验与证据**(§4):
   - 数据集/设置:**ALFWorld**(3827 实例,6 类)、**Search-QA**(单跳 NQ/TriviaQA/PopQA + 多跳 HotpotQA/2Wiki/MuSiQue/Bamboogle,NQ+HotpotQA 为 in-domain、其余 OOD)、**WebShop**(128 固定验证任务)。base=**Qwen2.5-VL-3B/7B**;4×H800,≤180 步;ALFWorld bs=16/8 rollout、prompt≤3072;Search-QA 用 Search-R1 设置 + E5 检索器、bs=128;WebShop 1000 训练任务。NS=3,SkillBank 用 SkillRL 初始化。指标:成功率(%)+ 每步 context token 成本(k),5 类基线(in-context prompting / GRPO / AgentOCR / EvolveR / SkillRL),含 GPT-4o/Gemini-2.5-Pro 闭源对照。
@@ -52,7 +52,7 @@
 
 - **假设与失效边界**:
   - 【原文 §Limitations】SKILL0 依赖**初始 SkillBank 质量**;离线 relevance-driven 分组在**新任务域需重新划分**(re-partition)。
-  - 【原文 附录 A.1/A.2】稳定性需 NS 足够大(Eq.14:NS>1+N·δr/(ε_clip·σ_G)),否则阶段切换的非平稳性破坏 advantage 信噪比;skill selection 的 (1−e^−α) 最优性需 J(·) 近似子模。
+  - 【原文 附录 A.1/A.2】稳定性需 NS 足够大(Eq.14:\(NS>1+N·δr/(ε_{clip}·σ_G)\)),否则阶段切换的非平稳性破坏 advantage 信噪比;skill selection 的 \((1−e^{−α})\) 最优性需 \(J(·)\) 近似子模。
   - 【推断】方法绑定 **VL 模型 + context rendering**(把技能/历史渲成图)——纯文本 LLM 无法直接用这套视觉压缩;且"技能进参数"对**程序性技能**(动作序列)友好,对**事实性知识**(Search-QA OOD)增益弱。依据:base 全是 Qwen2.5-**VL**、Search-QA OOD 增益小。
   - 【推断】helpfulness 评估需**为每个技能文件配验证子任务 T_k** + 每 d 步跑 with/without 两遍验证——技能多/类别细时验证成本与 T_k 标注成本上升。依据:Algorithm 1 Step 1 双重 Validate。
 
@@ -68,7 +68,7 @@
 
 | 学什么信号 | 改什么 | 何时改 | 免梯度? | 记忆-技能生命周期 | 防遗忘机制 |
 |---|---|---|---|---|---|
-| **环境 task reward**(成功率)+ **压缩效率** r_comp=ln(c_t)·[成功];课程用 **helpfulness ∆k=Acc(w/skill)−Acc(w/o skill)**(自产的内化探针);**无自反思/无人类/无外部经验库** | **改模型参数**(策略 π_θ,GRPO 把技能内化进权重 + 学自适应压缩比 c_t);**SkillBank 本身只被过滤/退火,不学** | **在线**:rollout per-step 渲染+决策;GRPO per-batch 更新;课程**周期性**(每 d=10 步算 ∆k、退火预算);test-time **零技能**不再改 | **否(纯梯度内化)**——核心靠 GRPO 梯度;课程/过滤是免梯度调度,但能力获取全靠策略梯度 | 技能=训练期外部脚手架:**写入**=离线 SkillBank(SkillRL 初始化)+ 按类分组;**检索/选择**=on-policy helpfulness 选 top-M 文件(非语义相似);**遗忘/淘汰**=∆k≤0 过滤 + 预算线性退火([6,3,0])单调减到 0;**共享**=内化进参数后推理期完全不需技能 | **线性预算退火**保证每阶段最多撤 ⌈N/(NS−1)⌉ 技能 → context 分布平滑、防突变(附录 A.1 稳定性界);**KL-to-ref**(GRPO 自带)约束策略漂移;**无显式参数级防遗忘 / 无 merge / 无隔离**——靠"平滑退火 + 持续 RL"维持 |
+| **环境 task reward**(成功率)+ **压缩效率** \(r_{comp}=ln(c_t)·[成功]\);课程用 **helpfulness \(∆k=Acc(w/skill)−Acc(w/o skill)\)**(自产的内化探针);**无自反思/无人类/无外部经验库** | **改模型参数**(策略 \(π_θ\),GRPO 把技能内化进权重 + 学自适应压缩比 \(c_t\));**SkillBank 本身只被过滤/退火,不学** | **在线**:rollout per-step 渲染+决策;GRPO per-batch 更新;课程**周期性**(每 d=10 步算 \(∆k\)、退火预算);test-time **零技能**不再改 | **否(纯梯度内化)**——核心靠 GRPO 梯度;课程/过滤是免梯度调度,但能力获取全靠策略梯度 | 技能=训练期外部脚手架:**写入**=离线 SkillBank(SkillRL 初始化)+ 按类分组;**检索/选择**=on-policy helpfulness 选 top-M 文件(非语义相似);**遗忘/淘汰**=\(∆k≤0\) 过滤 + 预算线性退火([6,3,0])单调减到 0;**共享**=内化进参数后推理期完全不需技能 | **线性预算退火**保证每阶段最多撤 ⌈N/(NS−1)⌉ 技能 → context 分布平滑、防突变(附录 A.1 稳定性界);**KL-to-ref**(GRPO 自带)约束策略漂移;**无显式参数级防遗忘 / 无 merge / 无隔离**——靠"平滑退火 + 持续 RL"维持 |
 
 - ⑦ **开源代码 + 框架/harness**:**已开源** https://github.com/ZJU-REAL/SkillZero(REAL Lab;abstract 明示 + HF papers/2604.02268 + repo 有 `skills/` 目录)。**框架 = veRL / verl-agent**(WebSearch 交叉确认 repo "builds on AgentOCR, **verl-agent, veRL**, ALFWorld, SkillRL, Search-R1")。即:**veRL 系 agentic RL** + **AgentOCR**(context rendering/视觉自压缩底座)+ **SkillRL**(SkillBank 初始化)+ **Search-R1**(Search-QA 设置/E5 检索)+ ALFWorld 环境。【原文 abstract + repo README 交叉确认】
 
@@ -86,7 +86,7 @@
 - 🖼 **关键图 top-2**:
 
   ![图2-SKILL0 总览:技能分组+ICRL+动态课程三阶段](../figures/skill0_zero_fig2.png)
-  这是**原文 Figure 2**(第 3 页):(a) **Relevance-Driven Skill Grouping**——SKILL.md 按 Domains/Relevance 组织成 S_1..S_N;(b) **In-Context RL**——agent loop 里 (1) Render(历史+技能渲成图)→(2) Compress(视觉自压缩,策略自生成 c_t)→(3) Rollout(采 G 条轨迹得 r/A)→(4) Update(GRPO);(c) **Curriculum Learning**——多个 agent loop 经 Dynamic Filter 逐步 Better Alignment → Skill Internalize → 推理时 zero-shot。选它因为一图说清全文三大件如何咬合成"训练给技能、课程退火、推理撤技能"的内化闭环。
+  这是**原文 Figure 2**(第 3 页):(a) **Relevance-Driven Skill Grouping**——SKILL.md 按 Domains/Relevance 组织成 \(S_1..S_N\);(b) **In-Context RL**——agent loop 里 (1) Render(历史+技能渲成图)→(2) Compress(视觉自压缩,策略自生成 \(c_t\))→(3) Rollout(采 G 条轨迹得 r/A)→(4) Update(GRPO);(c) **Curriculum Learning**——多个 agent loop 经 Dynamic Filter 逐步 Better Alignment → Skill Internalize → 推理时 zero-shot。选它因为一图说清全文三大件如何咬合成"训练给技能、课程退火、推理撤技能"的内化闭环。
 
   ![图5-训练动态:内化的三组对照(w/wo技能、vs AgentOCR、vs GRPO/SkillRL)](../figures/skill0_zero_fig5.png)
   这是**原文 Figure 5**(第 7 页,本页上方另有 Fig.3/4 的 reward 曲线):(a) SKILL0 带技能 vs 不带技能验证准确率——不带初期低、**末期追上**(内化发生);(b) **严格公平**下 SKILL0 vs AgentOCR(均无技能推理)——SKILL0 仍高,证优势源自内化而非 prompt;(c) 无技能协议下 SKILL0 vs GRPO/SkillRL——后两者**早早 plateau**,SKILL0 持续爬升到最高上界。选它因为这是全文最核心的证据图:直接可视化"技能内化"这一现象本身,并用三重对照排除"靠 prompt/靠初始化"的替代解释。

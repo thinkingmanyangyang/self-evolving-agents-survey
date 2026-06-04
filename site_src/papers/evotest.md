@@ -20,7 +20,7 @@
   - **自进化 agentic 系统**:prompt 自动优化 APE/OPRO、梯度启发 TextGrad、演化式 AlphaEvolve/Promptbreeder/EvoPrompt(维护 prompt 种群做变异/交叉)——【原文】**EvoTest 把"prompt 进化"推广到"整系统进化"**(prompt+memory+超参+工具),能做 prompt 编辑够不着的整体适应(如调探索强度)。EvoAgent/MASS 共享"统一优化"愿景。
 - **动机链**：现状(agent 不会临场学)→ 缺测试床 → **先造 J-TTL** 暴露"单轴适应(反思/记忆/prompt)有性能天花板、RL 在稀疏奖励 + 极度数据稀缺下信用分配失败"→ 所以需要**(a) 用富信息的 transcript 替代稀疏 reward 做信用分配,(b) 整系统多轴同时进化,(c) 免梯度以满足 test-time 的速度/数据效率**→ 两角色 Actor/Evolver 解耦 + UCB 选配置。
 - **与最近邻的 Δ**：
-  - **vs EvoPrompt/Promptbreeder(最近邻,纯 prompt 进化)**:【原文】EvoTest 进化**四元组 χ=(prompt, memory, 超参, 工具)** 而非只 prompt;且 Evolver 做的是 transcript 级因果分析而非通用变异(Table 5 证明这是核心)。
+  - **vs EvoPrompt/Promptbreeder(最近邻,纯 prompt 进化)**:【原文】EvoTest 进化**四元组 \(χ=(\text{prompt, memory, 超参, 工具})\)** 而非只 prompt;且 Evolver 做的是 transcript 级因果分析而非通用变异(Table 5 证明这是核心)。
   - **vs Reflexion**:Reflexion 只往 prompt 追加反思文本;EvoTest 还改记忆结构、温度、工具调用时机,是"多面手术"。
   - **vs JitRL(同组,互为 baseline)**:【推断】JitRL 在**输出分布层(logit)**做最小可证明干预、O(1) per-step;EvoTest 在**整 agent 配置层**做粗粒度、per-episode 的结构化重写——EvoTest 改的"面"更大(连工具/超参都动)、但更重(每回合一次 Evolver LLM 调用)、无理论最优性保证。两者是同一谱系的两个粒度极端。
 
@@ -29,14 +29,14 @@
 ## ══ 第三层：怎么做 + 靠不靠谱 ══
 
 - **方法流水线**（§4，配 Figure 1，Act-Evolve 双角色循环）：
-  1. **agent 配置 χ=(p, M, h, u)**（§4.1，可进化的"整系统"）：
+  1. **agent 配置 \(χ=(p, M, h, u)\)**（§4.1，可进化的"整系统"）：
      - **p 策略 prompt**：高层策略/启发式/护栏；
      - **M 部署期记忆**：结构化可查库——**success memory**（`(state hash, action)->score delta`，记导致加分的 state-action）+ **failure memory**（记停滞/负面模式,如某地点的重复动作循环）;
      - **h 超参**：温度、探索强度、停止准则;
      - **u 工具使用例程**：两类——*Memory Interaction Logic*(决策前查 M,命中 success 就把"被验证有效的动作"作为强提示注入 prompt) + *State Abstraction Logic*(**可进化的 Python 函数 state extractor**,把冗长 game history 解析成简短里程碑串如 "Milestone: Found the map.",每步注入,省得 LLM 重读全史)。
-  2. **Actor Agent**：拿固定 χ^(e) 玩完整一局,输出轨迹 τ^(e) 和回报 R^(e)。
-  3. **Evolver Agent**(由强 LLM o3 驱动):读 transcript τ^(e) + 父配置 χ^(e),做**整系统进化**,生成一组候选子配置,演化算子四种——**Prompt Mutation**(改写 p,加有效策略/禁失败模式)、**Memory Update**(程序化解析 transcript 填 success/failure 表)、**Hyperparameter Tuning**(如发现卡循环就调高温度)、**Tool-Use Refinement**(改查记忆的时机/强度)。
-  4. **UCB 配置选择**（§4.3，Eq.5）：从{父配置}∪{子配置}里按 \(μ̂(χ) + β·sqrt(logN/(1+n(χ)))\) 选下一局用的单一配置——**性能项**复用好配置 + **探索 bonus**给试得少的新变异;关键作用是**稳定性安全网**:若新子配置初试侥幸高分后续拉胯,其 μ̂ 下降,UCB 自然"回退"到久经考验的父配置,防止走上坏的进化路径(贪心选择则会被一次幸运高分骗住)。
+  2. **Actor Agent**：拿固定 \(χ^{(e)}\) 玩完整一局,输出轨迹 \(τ^{(e)}\) 和回报 \(R^{(e)}\)。
+  3. **Evolver Agent**(由强 LLM o3 驱动):读 transcript \(τ^{(e)}\) + 父配置 \(χ^{(e)}\),做**整系统进化**,生成一组候选子配置,演化算子四种——**Prompt Mutation**(改写 p,加有效策略/禁失败模式)、**Memory Update**(程序化解析 transcript 填 success/failure 表)、**Hyperparameter Tuning**(如发现卡循环就调高温度)、**Tool-Use Refinement**(改查记忆的时机/强度)。
+  4. **UCB 配置选择**（§4.3，Eq.5）：从{父配置}∪{子配置}里按 \(μ̂(χ) + β·sqrt(logN/(1+n(χ)))\) 选下一局用的单一配置——**性能项**复用好配置 + **探索 bonus**给试得少的新变异;关键作用是**稳定性安全网**:若新子配置初试侥幸高分后续拉胯,其 \(μ̂\) 下降,UCB 自然"回退"到久经考验的父配置,防止走上坏的进化路径(贪心选择则会被一次幸运高分骗住)。
 - **逐组件必要性（消融极充分，Table 3/4/5/6 + Figure 3）**：
   - **w/o Prompt**：掉最多（Detective 0.94→0.52）→ 进化高层策略是主驱动。
   - **w/o UCB**：AUC 掉(0.94→0.68),且 Figure 3 揭示**不稳定**——贪心选择会因 over-commit 高风险变异而灾难性掉分;UCB 提供回退安全网。
@@ -45,17 +45,17 @@
   - **结构化 vs 简单 mutation**(Table 5):0.94 vs 0.65 → Evolver 的精细分析是核心(见"最巧一步")。
 - **关键机制/直觉**：把"梯度反传分配信用"换成"LLM 读故事分配信用"——Evolver 像个赛后教练,看完录像指出"你在这卡了循环、那一步加分是因为先 examine 了物体",然后同时改战术板(prompt)、笔记(memory)、打法激进度(温度)、看笔记的习惯(工具)。UCB 是"别 all-in 一个新战术,留着老战术兜底"。
 - **实验与证据**（§5）：
-  - **设置**：Actor 用 gemini-2.5-flash(G)/claude-4-sonnet(C);Evolver 用 **o3**;微调 baseline(SFT/GRPO)在 qwen3-32b。6 个 Jericho 游戏,K 回合,指标 **AUC**(归一化:Σ R^(e)/(K·Rmax),0–1)+ 学习曲线。
+  - **设置**：Actor 用 gemini-2.5-flash(G)/claude-4-sonnet(C);Evolver 用 **o3**;微调 baseline(SFT/GRPO)在 qwen3-32b。6 个 Jericho 游戏,K 回合,指标 **AUC**(归一化:\(Σ R^{(e)}/(K·R_{max})\),0–1)+ 学习曲线。
   - **支撑核心主张的关键实验**：**Table 1**——EvoTest 六游戏全 SOTA,平均 AUC **0.47/0.50**,vs 次优 EvoPrompt 0.34/0.36(**+38%**)、vs GRPO(online) 0.30(**+57%**);**唯一通关 Detective+Library**。**Figure 2** 学习曲线显示更陡更稳。
   - **RQ3 关键对比(免梯度 vs RL)**:EvoTest 0.47/0.50 >> GRPO(online) 0.30——作者归因于**用 transcript 叙事反馈做信用分配**比稀疏标量 reward 数据效率高得多(一局复杂成败,RL 只得一个噪声标量,EvoTest 能语义解析出因果链)。
   - **公平性补强(很诚实)**:Table 6 **统一 Actor 为 qwen3-32b**——EvoTest(Actor+Evolver 都 qwen3-32b)0.35 仍 > GRPO 0.31;再换强 Evolver(o3)升到 0.40。这回应了"是不是靠更强模型赢"的质疑:同 Actor 下仍赢,但**强 Evolver 确实是重要增益来源**。
   - **效率**(Table 2):EvoTest 每次更新一次 LLM 调用、20–30 秒;SFT/GRPO 在 4×H100 上 5–10 分钟——**免梯度法在 test-time 速度上碾压**。
   - **"看着强但没答核心问题"的隐患**【推断】:(a) Zork1/Temple 上 EvoTest 绝对 AUC 仍很低(0.14/0.31),即**最难的长程游戏远未解决**,头条"全面 SOTA"在这些游戏上只是"矮子里拔将军";(b) 整套系统**重度依赖一个非常强的 Evolver(o3)**,Table 4 显示换弱 Evolver 收益骤降——真正的"智能"很大程度在 Evolver 而非 Actor。
 - **假设与失效边界**：
-  - 【原文】环境是**可重置到同一初始状态**的同一游戏(§3,s_0=s_init 对所有回合)——【推断】这是 J-TTL 的设计前提,保证"提升只来自学习";但现实任务往往不可逐字重置、不重复,EvoTest 的"同任务多回合进化"范式**在不可重复任务上不直接适用**。
+  - 【原文】环境是**可重置到同一初始状态**的同一游戏(§3,\(s_0=s_{init}\) 对所有回合)——【推断】这是 J-TTL 的设计前提,保证"提升只来自学习";但现实任务往往不可逐字重置、不重复,EvoTest 的"同任务多回合进化"范式**在不可重复任务上不直接适用**。
   - 【原文+推断】依赖 transcript 是**人类可读的叙事**(Jericho 文字游戏天然如此)——Evolver 靠语义分析 transcript;若环境反馈非自然语言(如纯数值/图像状态),Evolver 的信用分配能力会打折。
   - 【原文】**强依赖 Evolver LLM 能力**(Table 4),弱 Evolver 收益骤降——非"免费的午餐",Evolver 本身要烧强模型推理。
-  - 【推断】配置进化是**粗粒度、不可证明最优**(对比 JitRL 的闭式解);UCB 在 K 较小(论文 K≈50)时探索-利用平衡靠 β 调,长程下行为未充分验证。
+  - 【推断】配置进化是**粗粒度、不可证明最优**(对比 JitRL 的闭式解);UCB 在 K 较小(论文 \(K≈50\))时探索-利用平衡靠 β 调,长程下行为未充分验证。
 - **祛魅总结**：
   - **真贡献(硬货)**:① **J-TTL benchmark**——填补"会话内 test-time 学习"标准测试床空白,本身是可复用资产;② "**whole-system evolution**"——首个把 prompt+memory+超参+工具**联合进化**的免梯度框架,且消融(Table 3/5)干净地证明"多轴 + Evolver 深度分析"缺一不可;③ "credit assignment via narrative analysis"这一视角(用 transcript 替代稀疏 reward)概念上有启发,数据效率论证(vs GRPO)扎实;④ UCB 安全网设计解决了演化不稳定这一实际痛点(Figure 3)。
   - **包装/可能高估**【推断】:(a) "self-improving without gradients"成立,但**智能主要集中在外置 Evolver(o3)**,Actor 几乎没变强——更像"用强模型在线优化弱模型的脚手架配置",而非 Actor 本身的自进化;(b) "全面 SOTA"在最难游戏(Zork1 0.14)上几乎无意义,长程任务远未解决;(c) 每回合一次强 LLM 调用做整系统重写,**回合数一多 Evolver 成本累积**(Table 2 只算单次,未算整 session 总成本)。
@@ -68,11 +68,11 @@
 | 维度 | 内容 |
 |---|---|
 | **学什么信号** | **整段对局 transcript(叙事反馈)**——Evolver LLM 对其做**语义级信用分配**(找成败因果链),而非稀疏标量 reward;辅以 success/failure state-action 记录 |
-| **改什么** | **整套 agent 配置 χ=(prompt p, 记忆 M, 超参 h, 工具例程 u)** 全部可改——**多轴联合**:重写 prompt + 填记忆 + 调温度/探索 + 改工具(含一个可进化的 Python state-extractor 函数);**LLM 参数冻结、不动 logits** |
+| **改什么** | **整套 agent 配置 \(χ=(\text{prompt } p, \text{记忆 } M, \text{超参 } h, \text{工具例程 } u)\)** 全部可改——**多轴联合**:重写 prompt + 填记忆 + 调温度/探索 + 改工具(含一个可进化的 Python state-extractor 函数);**LLM 参数冻结、不动 logits** |
 | **何时改** | **在线 per-episode**(每打完一回合,Evolver 进化一次配置,UCB 选下一回合用哪个)——回合间更新,非 per-step 也非离线批量 |
 | **免梯度?** | **是**(无微调、无梯度;backbone 固定;学习=一次 Evolver LLM 调用做结构化配置编辑) |
 | **记忆-技能生命周期** | 写入:Evolver 程序化解析 transcript,把加分 state-action 入 success 表、停滞模式入 failure 表;检索:决策前 Memory Interaction Logic 查库,命中则把有效动作作强提示注入 prompt;遗忘/淘汰:**无显式遗忘**(记忆累积);共享:配置作为整体被 UCB 选择继承(子配置继承父记忆) |
-| **防遗忘机制** | **隔离式(不动权重→无灾难性遗忘)** + **UCB 回退安全网**(新坏配置 μ̂ 下降→自动退回久经考验的父配置,防演化走偏/灾难性掉分,Figure 3)——这是它独有的"配置层防退化"机制 |
+| **防遗忘机制** | **隔离式(不动权重→无灾难性遗忘)** + **UCB 回退安全网**(新坏配置 \(μ̂\) 下降→自动退回久经考验的父配置,防演化走偏/灾难性掉分,Figure 3)——这是它独有的"配置层防退化"机制 |
 
 ### ⑦ 开源代码 + 框架/harness
 - 【原文】代码:**https://github.com/yf-he/EvoTest**(脚注 1 + Reproducibility Statement 均给出,含 EvoTest 框架 + J-TTL benchmark + 所有 baseline 实现)。
@@ -80,7 +80,7 @@
 
 ### 💰 资源/成本与可扩展性
 - 【原文】Table 2:EvoTest 单次回合间更新 = **1 次 LLM 调用、20–30 秒**;对照 SFT/GRPO(online)在 **4×H100 上 5–10 分钟**。
-- 【推断】主要成本=每回合一次**强 Evolver(o3)**调用读全 transcript(token 量大),整 session(K≈50)累积成本论文未汇总〔待核〕;无 GPU 训练需求。可扩展瓶颈:Evolver 必须强、transcript 须可读、任务须可重复。
+- 【推断】主要成本=每回合一次**强 Evolver(o3)**调用读全 transcript(token 量大),整 session(\(K≈50\))累积成本论文未汇总〔待核〕;无 GPU 训练需求。可扩展瓶颈:Evolver 必须强、transcript 须可读、任务须可重复。
 
 ### 🎯 对"探索-巩固"idea 对标
 - **可借组件(主要) + 部分竞品**:

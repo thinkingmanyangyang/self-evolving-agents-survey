@@ -29,7 +29,7 @@
 ══ 第三层：怎么做 + 靠不靠谱 ══
 
 - **方法流水线（planner–executor 双阶段循环，5 个 M-MDP 算子）**：
-  1. **(1) Retrieve / Read**：planner（CBR agent）收到任务 instruction，从 Case Memory 检索 K 个相关案例三元组 \((s_i, a_i, r_i)\)（s=任务，a=plan，r=成功与否）。两种检索：**非参数**=对 state 编码后取 cosine TopK（式13，SimCSE 编码）；**参数**=用学到的 Q 函数取 Q 值 TopK（式16）。【原文 §4.1/§4.2 式13/16】
+  1. **(1) Retrieve / Read**：planner（CBR agent）收到任务 instruction，从 Case Memory 检索 K 个相关案例三元组 \((s_i, a_i, r_i)\)（\(s\)=任务，\(a\)=plan，\(r\)=成功与否）。两种检索：**非参数**=对 state 编码后取 cosine TopK（式13，SimCSE 编码）；**参数**=用学到的 Q 函数取 Q 值 TopK（式16）。【原文 §4.1/§4.2 式13/16】
   2. **(2) Reuse & Revise**：检索到的案例拼到当前任务 prompt，**冻结的 LLM**（GPT-4.1 planner）据此生成/重规划 subtask 分解。【原文 §4.1 式中 p_LLM】
   3. 执行阶段 **Tool-Based Execution**：executor（o3 for GAIA / o4-mini）作为 **MCP client**，逐个 subtask 调外部工具（searxng 元搜索 + Crawl4AI 爬虫 + 多模态文档处理 + 沙箱 Code/Math），结果写 Subtask Memory / Tool Memory。【原文 §4.1/§4.3】
   4. **(3) Evaluation + (4) Retain / Write**：拿到 reward 后，**仅在任务完成时**把 (s,a,r) 写入 Case Bank（式12）；state 用冻结文本编码器向量化、a 与 r 原样保存。参数版同时**在线更新 Q 函数**。【原文 §4.2 式12】
@@ -42,8 +42,8 @@
 - **关键机制/公式（直觉解释，不复述符号）**：
   - **式(1) 整体策略分解**：把"选哪条 plan"拆成"先以 μ 选一条历史案例、再让冻结 LLM 据案例产出动作"——这让**唯一可训的东西就是检索器 μ**，LLM 当黑盒先验。【原文 §3】
   - **式(7) 最优检索策略 = Q 值 softmax**：在最大熵 RL 下，最优 μ 是 \(exp(Q/α)\) 归一化——直觉=**Q 越高（这条案例对当前 state 越"有用/会带来成功"）越该被检索**，熵项 α 保证检索多样、不塌缩到单一案例。【原文 §3 式7】
-  - **式(9) 核估计 Q**：直接对自然语言 state 学 Q 很难，于是用**核网络 k(s,s')** 把"相似 state 的历史 Q"加权平均（episodic control 思路），只训核参数 θ。【原文 §3 式9】
-  - **式(14→15) 单步塌缩 + CE 损失**：因 deep research 的 **planning 只需单步、reward 二值 r∈{0,1}**，多步 TD 目标塌缩成"立即 reward 的监督回归"，且把 MSE 换成 **交叉熵**（理由：MSE 在 0/1 附近梯度消失，CE 数值更稳）——Q(s,c) 直接被解读为"案例 c 对 state s 是好参考的概率 p(r=1|s,c)"。这是把 RL 偷偷变成**二分类训练**的关键工程化简，使免梯度框架里那一点点要训的东西极轻。【原文 §4.2 式14/15】
+  - **式(9) 核估计 Q**：直接对自然语言 state 学 Q 很难，于是用**核网络 \(k(s,s')\)** 把"相似 state 的历史 Q"加权平均（episodic control 思路），只训核参数 θ。【原文 §3 式9】
+  - **式(14→15) 单步塌缩 + CE 损失**：因 deep research 的 **planning 只需单步、reward 二值 \(r∈\{0,1\}\)**，多步 TD 目标塌缩成"立即 reward 的监督回归"，且把 MSE 换成 **交叉熵**（理由：MSE 在 0/1 附近梯度消失，CE 数值更稳）——\(Q(s,c)\) 直接被解读为"案例 c 对 state s 是好参考的概率 \(p(r=1|s,c)\)"。这是把 RL 偷偷变成**二分类训练**的关键工程化简，使免梯度框架里那一点点要训的东西极轻。【原文 §4.2 式14/15】
 - **实验与证据**：
   - 4 基准：**GAIA**（长程工具用，450 题，三难度）、**DeepResearcher**（7 个开放域 QA，实时网检）、**SimpleQA**（4330 事实题）、**HLE**（2500 题前沿学科推理）。指标：GAIA 用 EM/Pass@3；其余 macro-F1 + GPT-4o-mini 判的 PM。【原文 §5.1/§5.2】
   - **支撑核心主张的关键实验**：① **Table 1** Memento(GPT-4.1+o4-mini) 在 DeepResearcher 7 数据集均值 **66.6 F1 / 80.4 PM**，**超过训练式 SOTA DeepResearcher（51.8/60.5）**——直接证明"免微调也能赢训练式"。② **Table 2** GAIA 验证集 **87.88% Pass@1/3 top-1**（开源框架内），测试集 79.40%（第 3/4）。③ **Table 4/Fig 1c** 5 轮迭代准确率单调上升=持续学习曲线。④ **Fig 1d** OOD +4.7~9.6。【原文 Table1/2/4 + Fig1】
@@ -64,7 +64,7 @@
 
 | 学什么信号 | 改什么 | 何时改 | 免梯度? | 记忆-技能生命周期 | 防遗忘机制 |
 |---|---|---|---|---|---|
-| 环境 reward（任务成功/失败二值 r∈{0,1}）→ 经验库（episodic case bank）;无人类/无自反思文本规则 | **记忆（Case Bank 内容）+ 一个轻量检索器参数 θ（Q 函数/核网络的 MLP）**;**LLM 权重完全不动**、prompt 经检索案例间接被改 | 在线 per-episode（每条轨迹完成后 Write 入库 + 在线更新 Q）;参数版为单步监督更新 | **混合**：LLM 免梯度;检索器 μ 有梯度（但极小，两层 MLP / 核网络）→ 整体相对"免 LLM 梯度" | 写入(Write 式12,仅任务完成时)→检索(Read 非参数 cosine TopK / 参数 Q-TopK,式13/16)→**淘汰/遗忘 = 无显式机制**（只增不删,论文自指 swamping 风险但未实现 decay）→ 共享(案例库可跨任务/OOD 迁移,Fig1d) | **隔离式**为主：知识存外部库、LLM 不更新故**底层不遗忘**;但记忆层无 Ebbinghaus/淘汰，长期有膨胀风险【原文未实现遗忘】 |
+| 环境 reward（任务成功/失败二值 \(r∈\{0,1\}\)）→ 经验库（episodic case bank）;无人类/无自反思文本规则 | **记忆（Case Bank 内容）+ 一个轻量检索器参数 θ（Q 函数/核网络的 MLP）**;**LLM 权重完全不动**、prompt 经检索案例间接被改 | 在线 per-episode（每条轨迹完成后 Write 入库 + 在线更新 Q）;参数版为单步监督更新 | **混合**：LLM 免梯度;检索器 μ 有梯度（但极小，两层 MLP / 核网络）→ 整体相对"免 LLM 梯度" | 写入(Write 式12,仅任务完成时)→检索(Read 非参数 cosine TopK / 参数 Q-TopK,式13/16)→**淘汰/遗忘 = 无显式机制**（只增不删,论文自指 swamping 风险但未实现 decay）→ 共享(案例库可跨任务/OOD 迁移,Fig1d) | **隔离式**为主：知识存外部库、LLM 不更新故**底层不遗忘**;但记忆层无 Ebbinghaus/淘汰，长期有膨胀风险【原文未实现遗忘】 |
 
 - ⑦ **开源代码 + 框架/harness**：**已开源**，`https://github.com/Agent-on-the-Fly/Memento`【原文 Abstract】。框架/harness = **自研 planner–executor 系统 + MCP（Model Context Protocol）作工具接口**；检索器为自写小型神经网（SimCSE 句编码 + 两层 MLP Q 函数 / 核网络）；**未使用 veRL/TRL/OpenRLHF 等 RL 训练框架**（因不训 LLM，只训轻量检索器）。工具栈：searxng + Crawl4AI + VLM/ASR 等多模态处理 + 沙箱 Code/Math。【原文 §4.1/§4.3】 〔本次未 clone 仓库验证，框架判断基于正文描述；代码可达性待 P3 仓库核查环节确认〕【待核：仓库实际文件/框架】
 

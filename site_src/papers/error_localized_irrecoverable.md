@@ -26,27 +26,27 @@
 - **方法流水线(Figure 2,三大设计)**:
   1. **BEL 二分树 rollout(§4.1, Algorithm 1)**:
      - *选轨迹(熵 gap)*:维护失败轨迹 buffer B;按 **Htool−Hroot**(工具反馈后平均熵 − 初始响应平均熵)最大者选**一条**最有信息的失败轨迹做二分(因为很多失败冗余)。用完清空 buffer。
-     - *二分定位*:对选中轨迹,取中间步为 anchor、固定前缀、采 Xm 条后缀;任一后缀成功→前缀可恢复(L=m+1,往后半段)、否则不可恢复(R=m,往前半段);收敛到单步即首个不可恢复步 tcrit。
-     - *自适应后缀采样*:anchor 处后缀数 Xm = Xmin+(Xmax−Xmin)·σ(β(Htool_m−Hroot))——熵 gap 大(更可能靠近致命步)就多采,稳定低熵步少采。
-     - *预算守恒*:**全部 rollout(整条轨迹 + 各 anchor 后缀分支)都计入固定 Ntotal=16**,BEL 只是在"整轨迹"与"前缀后缀分支"之间重分配,**不增采样**;所有 baseline(含树类)同 Ntotal 下比。
+     - *二分定位*:对选中轨迹,取中间步为 anchor、固定前缀、采 \(X_m\) 条后缀;任一后缀成功→前缀可恢复(\(L=m+1\),往后半段)、否则不可恢复(\(R=m\),往前半段);收敛到单步即首个不可恢复步 \(t_{crit}\)。
+     - *自适应后缀采样*:anchor 处后缀数 \(\displaystyle X_m = X_{min}+(X_{max}−X_{min})·σ(β(H_{tool,m}−H_{root}))\)——熵 gap 大(更可能靠近致命步)就多采,稳定低熵步少采。
+     - *预算守恒*:**全部 rollout(整条轨迹 + 各 anchor 后缀分支)都计入固定 \(N_{total}=16\)**,BEL 只是在"整轨迹"与"前缀后缀分支"之间重分配,**不增采样**;所有 baseline(含树类)同 \(N_{total}\) 下比。
   2. **层级优势归因(§4.2)**:
      - *step-wise reward*:树节点递归回传——叶=终局 reward,内部=子节点 reward 均值(Eq.6)。
      - *branch-level*:同一父节点下,对子分支的 r(c) 组内归一(Eq.7)→ 恰在"动作发散的决策点"给局部 credit。
      - *trajectory-level*:对整条 rollout 的终局 reward 组内归一(Eq.8),内部节点取经过它的所有轨迹优势均值(Eq.9)→ 长线性段上的稳定全局信号。
-     - *合并*:Ahier = λtree·Ab + (1−λtree)·At(Eq.10,λtree=0.5)。λ=0 退回普通 group RL,λ=1 纯局部分支。
-  3. **ELC 误差定位自适应裁剪(§4.3)**:把 GRPO 下裁剪界 1−εlow 换成 token 相关的 1−ε^t_low:**仅对 tcrit 及其后缀 token** 把下界放大(εlow+εelc)。直觉(A<0 时):放低 1−ε^t_low 让更小的比率 ρ<1 仍不被裁剪 → 放大对"错误后缀 token"的负向更新、更狠地惩罚;A>0 时上界不变,所以**主要是压制错误后缀、不放大正向更新**。
-  4. **训练目标(§4.4)**:GRPO 目标里把 group 优势换成 Ahier、下裁剪界换成 1−ε^t_low(Eq.12),其余(feedback-token masking 等)不变。
+     - *合并*:\(A_{hier} = λ_{tree}·A_b + (1−λ_{tree})·A_t\)(Eq.10,\(λ_{tree}=0.5\))。\(λ=0\) 退回普通 group RL,\(λ=1\) 纯局部分支。
+  3. **ELC 误差定位自适应裁剪(§4.3)**:把 GRPO 下裁剪界 \(1−ε_{low}\) 换成 token 相关的 \(1−ε^t_{low}\):**仅对 \(t_{crit}\) 及其后缀 token** 把下界放大 \((ε_{low}+ε_{elc})\)。直觉(\(A<0\) 时):放低 \(1−ε^t_{low}\) 让更小的比率 \(ρ<1\) 仍不被裁剪 → 放大对"错误后缀 token"的负向更新、更狠地惩罚;\(A>0\) 时上界不变,所以**主要是压制错误后缀、不放大正向更新**。
+  4. **训练目标(§4.4)**:GRPO 目标里把 group 优势换成 \(A_{hier}\)、下裁剪界换成 \(1−ε^t_{low}\)(Eq.12),其余(feedback-token masking 等)不变。
 - **逐组件必要性(消融)**:
   - **BEL**:图3 直接消融 "ELPO w/o BEL"(改 TreeGRPO 式随机选分支前缀)→ ranking 的 pairwise accuracy / Kendall τ 明显低于完整 ELPO → BEL 对"信息性兄弟分支比较"贡献关键。
   - **层级优势 / ELC 的单独消融**:论文正文称放在 **Appendix F(component ablations)**,主文未展开数字【待核:本次只读到正文+部分附录(到 Appendix D),F 的具体数字未见,需查附录 F】。
-  - λtree、εelc 等敏感性:Appendix G(未展开)。超参表(表2):Ntotal=16, Bmax=3, Xmin=1, Xmax=3, β=5, λtree=0.5, εlow=0.2, εhigh=0.315, εelc=0.115。
+  - \(λ_{tree}\)、\(ε_{elc}\) 等敏感性:Appendix G(未展开)。超参表(表2):\(N_{total}=16\), \(B_{max}=3\), \(X_{min}=1\), \(X_{max}=3\), \(β=5\), \(λ_{tree}=0.5\), \(ε_{low}=0.2\), \(ε_{high}=0.315\), \(ε_{elc}=0.115\)。
 - **关键机制/公式直觉**:
   - *为什么二分能定位"首个不可恢复步"*:恢复性沿轨迹是**单调的**(越往后前缀越接近终点、越可能不可恢复)——这个隐含单调假设让二分成立,把 O(K) 探测降到 O(log K)。
   - *为什么 branch+trajectory 双粒度*:branch-level 在决策点给"锐"的局部信号但可能噪;trajectory-level 给"钝但稳"的全局信号;合并兼顾定位性与一致性。
   - *ELC 为何只动下界*:负优势(惩罚错误)时放松下界=允许更激进的下压;保持上界=不滥发正向奖励,避免 collateral policy drift(图2 文字"do-no-harm")。
 - **实验与证据**:
   - 数据集:数学(MATH、GSM8K、MATH500、AIME2024、AIME2025)、科学 QA(GPQA-Diamond)、代码(LiveCodeBench-v6)。
-  - 设置:**VERL 框架**实现,feedback-token masking(梯度只算 agent 生成 token);backbone=Qwen2.5-7B-Instruct / Qwen3-4B-Instruct-2507。先在 Open-AgentRL-SFT-3K 冷启 SFT 5 epoch,再在 Open-AgentRL-30K RL 1 epoch;GRPO KL 系数=0(求稳);total batch 128 / PPO mini-batch 16 / 最大上下文 20K token;**每输入 rollout 预算 Ntotal=16(所有方法同口径,树类每次分支也计入)**;**8×A100**。
+  - 设置:**VERL 框架**实现,feedback-token masking(梯度只算 agent 生成 token);backbone=Qwen2.5-7B-Instruct / Qwen3-4B-Instruct-2507。先在 Open-AgentRL-SFT-3K 冷启 SFT 5 epoch,再在 Open-AgentRL-30K RL 1 epoch;GRPO KL 系数=0(求稳);total batch 128 / PPO mini-batch 16 / 最大上下文 20K token;**每输入 rollout 预算 \(N_{total}=16\)(所有方法同口径,树类每次分支也计入)**;**8×A100**。
   - **支撑核心主张的关键证据**:
     - *动机实验(图1)*:同改一步,修首个不可恢复步的恢复率(AIME25 32.8 / GPQA 26.5 / LCB 43.6)**远超**修随机错(4.2 / 2.8 / 8.5)或修首个错误步(23.6 / 18.5 / 31.4)——这是全文立论的实证基石,且区分了"首个错误步"≠"首个不可恢复步"。
     - *主结果(表1)*:Qwen2.5-7B 上 ELPO 平均 **60.7**,比最强 Agentic RL baseline **DemyAgent(59.4) +1.3**、比 GRPO(51.2)+9.5;Qwen3-4B 上 ELPO **72.6**,比 DemyAgent-4B(71.9)+0.7。文中称分别 +2.2% / +1.0%(相对 DemyAgent 的口径)。
@@ -57,7 +57,7 @@
 - **假设与失效边界**:
   - 【原文 Limitations】首个不可恢复步是**在固定预算/当前策略/解码配置下、有限后缀采样**的经验结果——低成功率或高随机域里,罕见成功/假阴性会给二分引入偏差/方差,且定位步会随策略/预算漂移;评测集中在**较确定性工具环境**(代码/计算/闭式 QA),未测开域 web 搜索/GUI 等噪声更大的工具;**只针对单一最早关键步**,无法覆盖"多个交互错误/渐进式误差累积"。
   - 【推断】二分定位依赖"恢复性沿轨迹单调"的隐含假设;若中段可恢复、后段又可恢复但中间不可恢复(非单调),二分会错。依据=Algorithm 1 的二分逻辑要求单调可恢复性。
-  - 【推断】ELC 的 εelc=0.115 等是固定超参,跨任务最优值未必稳定(故有 Appendix G 敏感性分析)。
+  - 【推断】ELC 的 \(ε_{elc}=0.115\) 等是固定超参,跨任务最优值未必稳定(故有 Appendix G 敏感性分析)。
 - **祛魅总结**:
   - 真贡献(硬货):**(1) 实证区分"首个错误步"与"首个不可恢复步"并证明后者是更强的可恢复性判别信号(图1)**;**(2) 固定预算内 O(log K) 二分 + 熵引导的低成本定位(BEL)**;**(3) 把定位信号转成 branch+trajectory 层级优势 + 误差定位自适应裁剪(ELC)** 这套即插 GRPO 的步级 credit 方案。机制设计精巧、预算守恒论证扎实。
   - 包装/营销成分【推断】:① 图1 的强对比是"oracle 信号上限",端到端主结果增益其实温和(+1.3/+0.7),标题"Learning from the Irrecoverable"略大于实测净收益;② 层级优势 + 自适应裁剪都是在 GRPO/DAPO 既有件上的组合改造,单看创新度中等,**核心新意在 BEL 定位**;③ 主文把层级优势/ELC 的单独消融、敏感性都丢进附录,正文只展示了 BEL 的 ranking 消融——读者难判断 ELC 净贡献多大(需查 Appendix F);④ 代码"will be publicly released soon"——**截至本版未开源**。
@@ -75,7 +75,7 @@
 | 防遗忘机制 | **不适用/未涉及**(单策略 RL,无多任务/持续学习,未讨论灾难遗忘;无 merging/KL 投影/几何共识) |
 
 - ⑦ **开源代码 + 框架/harness**:**尚未开源**(摘要&正文 "Our code will be publicly released soon",截至 v1 无链接)。**训练框架明确 = VERL**(`https://github.com/volcengine/verl`,§5.3 + 脚注3),带 feedback-token masking;RL 算法=GRPO 变体(KL=0)。数据集为公开 HF 资源:Open-AgentRL-SFT-3K / Open-AgentRL-30K(Gen-Verse),benchmark 工具环境=代码解释器/计算/搜索。
-- 💰 **资源/成本与可扩展性**:**8×A100**;total batch 128 / PPO mini-batch 16 / 上下文 20K;每输入 rollout 预算 **Ntotal=16(关键卖点:BEL 在此固定预算内重分配,不增采样)**。冷启 SFT 5 epoch + RL 仅 1 epoch。二分定位 O(log K) 探测显著低于逐步穷举(O(K))。验证到 4B/7B 规模。
+- 💰 **资源/成本与可扩展性**:**8×A100**;total batch 128 / PPO mini-batch 16 / 上下文 20K;每输入 rollout 预算 **\(N_{total}=16\)(关键卖点:BEL 在此固定预算内重分配,不增采样)**。冷启 SFT 5 epoch + RL 仅 1 epoch。二分定位 O(log K) 探测显著低于逐步穷举(O(K))。验证到 4B/7B 规模。
 - 🎯 **对"探索-巩固"idea 对标** [light]：**支撑 + 可借组件(偏"探索/credit 定位"一侧)**。
   - *支撑*:与 TSRD"切关键步(高熵/低置信)而非换行""path-recovery 单点接管"**强呼应**——ELPO 正是用熵 gap 选步、二分定位"首个不可恢复步"作为单点 credit 锚,且实证(图1)证明"修这一步"恢复率最高,为"单点接管"提供了 RL 侧的量化依据。
   - *可借组件*:(1) **二分搜索 + 后缀重采定位"首个不可恢复步"**(O(log K),无需老师)——可作 TSRD path-recovery 切点的自动定位器,替代/补充 MTP 前瞻探针;(2) **固定 rollout 预算内重分配**的工程范式(降成本);(3) **ELC:对关键步后缀放松裁剪下界**——一种"在关键步加大学习信号"的轻量手术,可迁移到 OPD 的关键步加权;(4) **branch-level 组内归一**给决策点局部 credit,可与 GRPO/step 切分(用户已调研 108 篇的那条线)拼接。

@@ -12,9 +12,9 @@
 - **与最近邻的 Δ**:相比 **MEM1**(同为长程多目标任务上的 RL 记忆方法、同 base、同测试协议),关键差异=**MemPO 给 `<mem>` token 设计了"记忆级 advantage"(用条件概率代理度量记忆有用性),做了 per-step 的记忆 credit assignment**,而非只有轨迹级稀疏信号。这个差异有用,因为它直接量化"这步压缩保留了多少对解题有用的信息",引导模型只留强相关内容。【原文 §1, §4】
 
 ══ 第三层:怎么做 + 靠不靠谱 ══
-- **方法流水线**:① **范式重构**——把每步状态拆成 {`<mem>` 记忆动作, `<think>` 推理, \(<tool_call>\) 调用, `<information>` 工具返回};推理时**只用上一步交互**(上一步的 `<mem>` + 信息)作下一步输入,而非线性累积全 context(Fig.1);② **BC 冷启动**——先用 GPT-4.1 在 Tang et al. 数据上推理得 ~10k 含 `<mem>` 的轨迹,SFT 一轮让模型学会生成 `<mem>` 格式;③ **MemPO(改进 GRPO)**——N 条 rollout,每条算轨迹级 reward RT(答案正确且格式对=1 否则 0)→ 组归一化得轨迹级 advantage A^T;每步 `<mem>` 额外算记忆级 reward RM → 组归一化得记忆级 advantage A^M;**`<mem>` token 的最终 advantage = A^T + A^M,其余 token 只用 A^T**;④ KL 锚 πref。【原文 §1, §3-4, Fig.1-2】
+- **方法流水线**:① **范式重构**——把每步状态拆成 {`<mem>` 记忆动作, `<think>` 推理, \(<tool_call>\) 调用, `<information>` 工具返回};推理时**只用上一步交互**(上一步的 `<mem>` + 信息)作下一步输入,而非线性累积全 context(Fig.1);② **BC 冷启动**——先用 GPT-4.1 在 Tang et al. 数据上推理得 ~10k 含 `<mem>` 的轨迹,SFT 一轮让模型学会生成 `<mem>` 格式;③ **MemPO(改进 GRPO)**——N 条 rollout,每条算轨迹级 reward RT(答案正确且格式对=1 否则 0)→ 组归一化得轨迹级 advantage \(A^T\);每步 `<mem>` 额外算记忆级 reward RM → 组归一化得记忆级 advantage \(A^M\);**`<mem>` token 的最终 advantage = \(A^T + A^M\),其余 token 只用 \(A^T\)**;④ KL 锚 \(\pi_{ref}\)。【原文 §1, §3-4, Fig.1-2】
 - **逐组件必要性**:① `<mem>` 动作内生化——没它退回外部 RAG(被动、不联合优化);② BC 冷启动——没它模型不会生成合规 `<mem>`;③ 记忆级 reward RM + 双 advantage——**这是最巧的一步**,没它退化成 vanilla GRPO(只有稀疏轨迹 reward,无法告诉模型每步压得好不好),消融证实加 RM 后 F1 全面提升、条件概率分布更偏高值。论文有针对 RM 的消融。【原文 §3-4】
-- **关键机制 RM(直觉)**:**RM = P(正确答案 | 当前步 `<mem>` 内容) − P(正确答案 | 前 t-1 步完整前缀)**。直觉:用策略模型自己的 forward 条件概率当探针——"只看这步压缩后的记忆,模型答对的概率,相比看完整前缀,差多少"——差得越小说明 `<mem>` 保留的有用信息越足。这是一个**免梯度的信息量代理**(用 πθ 的 forward 概率算,不需外部标注),与 forward-hard/backward-soft 解耦同源:用 forward 条件概率构造有界平滑信号去引导一个原本稀疏/硬的目标。【原文 §3】
+- **关键机制 RM(直觉)**:**RM = P(正确答案 | 当前步 `<mem>` 内容) − P(正确答案 | 前 t-1 步完整前缀)**。直觉:用策略模型自己的 forward 条件概率当探针——"只看这步压缩后的记忆,模型答对的概率,相比看完整前缀,差多少"——差得越小说明 `<mem>` 保留的有用信息越足。这是一个**免梯度的信息量代理**(用 \(\pi_\theta\) 的 forward 概率算,不需外部标注),与 forward-hard/backward-soft 解耦同源:用 forward 条件概率构造有界平滑信号去引导一个原本稀疏/硬的目标。【原文 §3】
 - **实验与证据(支撑核心主张的关键数字)**:
   · 数据集:仿 MEM1 用**多目标任务**(交互轮数远多于单目标,更逼长 context)——HotpotQA+NQ 合成的 2-objective,及 HotpotQA 合成的 4/6/8/10-objective;在 **local wiki search 与 web search** 两种引擎下测;指标 F1(词级)/EM(精确)/TT(总 token)/PT(单步峰值 token)。【原文 §5.1】
   · **核心结果**:比 base 模型 **+25.98 F1**、比上一 SOTA **+7.1 F1**,同时 **token 降 67.58% / 73.12%**;Qwen2.5(ReAct)随目标数增加 F1 从 33.73(2-obj)崩到 2.63(10-obj),MemPO 在长程上保持。【Abstract, Table 1】
@@ -27,18 +27,18 @@
 | 维度 | 内容 |
 |---|---|
 | **学什么信号** | ① 轨迹级 reward RT（答案正确且格式对=1 否则 0）② **记忆级稠密 reward RM = P(ans\|`<mem>`_t) − P(ans\|前缀_<t)**（条件概率代理，模型自评，无需外部标注） |
-| **改什么** | **参数**（GRPO 更新策略 πθ），尤其优化 `<mem>` 动作的生成；记忆是模型**内生能力**而非外部模块 |
+| **改什么** | **参数**（GRPO 更新策略 \(\pi_\theta\)），尤其优化 `<mem>` 动作的生成；记忆是模型**内生能力**而非外部模块 |
 | **何时改** | 训练：在线 per-step（GRPO，但记忆奖励是 per-step/per-`<mem>` 稠密信号）；推理时记忆管理 per-step 在线发生（每步生成 `<mem>` 喂下一步） |
-| **免梯度?** | **混合**：策略更新走梯度；但**记忆质量信号 RM 本身免梯度**（用 πθ 的 forward 条件概率算，类似 forward-hard/backward-soft 的 reward 侧免梯度代理） |
-| **记忆-技能生命周期** | 写入(每步 `<mem>` 主动摘要 s<t)→使用(下一步只读 smem_{t-1} 替代全前缀)→**隐式遗忘(截断:只保留上一步,丢弃更早)**；记忆是 transient working memory，非跨任务持久库 |
-| **防遗忘机制** | KL 投影（GRPO 锚定 πref）；BC 冷启动(GPT-4.1 生成 ~10K 含 `<mem>` 轨迹 SFT 一轮)保格式能力；**核心非防遗忘而是"主动遗忘/压缩"**——靠 RM 引导只留强相关信息 |
+| **免梯度?** | **混合**：策略更新走梯度；但**记忆质量信号 RM 本身免梯度**（用 \(\pi_\theta\) 的 forward 条件概率算，类似 forward-hard/backward-soft 的 reward 侧免梯度代理） |
+| **记忆-技能生命周期** | 写入(每步 `<mem>` 主动摘要 \(s_{<t}\))→使用(下一步只读 \(s^{mem}_{t-1}\) 替代全前缀)→**隐式遗忘(截断:只保留上一步,丢弃更早)**；记忆是 transient working memory，非跨任务持久库 |
+| **防遗忘机制** | KL 投影（GRPO 锚定 \(\pi_{ref}\)）；BC 冷启动(GPT-4.1 生成 ~10K 含 `<mem>` 轨迹 SFT 一轮)保格式能力；**核心非防遗忘而是"主动遗忘/压缩"**——靠 RM 引导只留强相关信息 |
 
 🖼 **关键图 top-2** [light]：
 ![图1-自记忆推理过程（原文 Figure 1）](../figures/mempo_self_memory_fig1.png)
 图1（动机/范式图）：每步状态拆成 {`<mem>` 记忆, `<think>` 推理, \(<tool_call>\) 调用, `<information>` 工具返回}；推理时**只用上一步交互**作下一步输入（`<mem>` 动作压缩历史），而非线性累积全 context。选它因为一图说清"自记忆"区别于外部 RAG 的本质——记忆是 inline 动作、context 不膨胀。
 
 ![图2-MemPO 双 advantage 流程（原文 Figure 2）](../figures/mempo_self_memory_fig2.png)
-图2（方法主图）：N 条 rollout→每条算轨迹级奖励 RT 与每步记忆奖励 RM(用条件概率 Pmem−ε)→组归一化得 A^T 与 A^M→**`<mem>` token 的最终 advantage = A^T + A^M，其余 token 只用 A^T**；推理时只喂上一步内容。选它因为它精确呈现了全文最核心的创新——记忆级 credit assignment 的计算与注入方式。
+图2（方法主图）：N 条 rollout→每条算轨迹级奖励 RT 与每步记忆奖励 RM(用条件概率 \(P_{mem}-\varepsilon\))→组归一化得 \(A^T\) 与 \(A^M\)→**`<mem>` token 的最终 advantage = \(A^T + A^M\)，其余 token 只用 \(A^T\)**；推理时只喂上一步内容。选它因为它精确呈现了全文最核心的创新——记忆级 credit assignment 的计算与注入方式。
 
 ══ 假设与失效边界（一句）[推断] ══
 【原文 Limitations】不同步工具调用使各步信息含量不等、状态跨步不完全等价，会给组内 advantage 引偏（已用 ε bias 项缓解，复杂环境需更细方案）；【推断】RM 用"答案的条件概率"做代理，强依赖任务有明确可验证答案(QA/搜索类)，对开放生成/无单一答案任务该信号可能失效。

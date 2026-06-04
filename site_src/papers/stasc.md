@@ -31,7 +31,7 @@
 - **方法流水线**(Alg.1，每轮 n=1..N)：输入初始模型 M0、数据 D0、迭代数 N、采样数 Ninit/Ncorr、reward r →
   ① **Step1 采初始答**：对每题 x 采 Ninit 个 ŷ¹(旋钮1：用冻结 M0=Fixed Init，还是上一轮 Mn-1=Evolving Init)；
   ② **Step2 采修正**：对每个 ŷ¹ 用 Mn-1 采 Ncorr 个修正 ŷ²；
-  ③ **Step3 过滤(旋钮2)**：D⁺={r(ŷ²)>r(ŷ¹)}(Improving，只留严格变好)，或 D⁺∪D⁼(Non-Decreasing，把"已对且没改坏"也留下，r(ŷ²)=r(ŷ¹)≥t)；
+  ③ **Step3 过滤(旋钮2)**：\(D^+=\{r(ŷ^2)>r(ŷ^1)\}\)(Improving，只留严格变好)，或 \(D^+∪D^=\)(Non-Decreasing，把"已对且没改坏"也留下，\(r(ŷ^2)=r(ŷ^1)≥t\))；
   ④ **Step4 微调(旋钮3)**：在 Dn 上训出 Mn，**只对修正 token 算梯度**(旋钮3：从 M0=Fixed FT 重训，还是从 Mn-1=Evolving FT 续训)。
   多轮重复，逐步提升准确率。输出：会自纠错的 SLM。
 

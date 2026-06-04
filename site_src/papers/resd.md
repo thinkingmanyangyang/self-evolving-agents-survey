@@ -12,7 +12,7 @@
 
 - **研究背景**:LLM 后训练的核心命题之一是"靠环境交互持续自我改进"。RL(PPO/GRPO)是标配,但**稀疏奖励**是瓶颈:复杂多步任务里成功轨迹极稀有时,RL 缺稠密监督、难在巨大探索空间里 bootstrap。**On-Policy Distillation(OPD)** 是有前景的替代——用更强/特权教师给每个 token 算目标概率,把稀疏终局变稠密 token 信号。【原文 §1】
 
-- **解决的具体痛点**:OPD 要维护一个独立大教师(贵 + 学生/教师分布失配);**自蒸馏(SDPO/OPSD)** 用模型自身(当前/EMA 权重 θold)在特权上下文下当教师,既省外部 oracle 又天然对齐学生分布。**但**:自蒸馏的成败全押在"自教师监督质量"上,而现有方法**把环境反馈当成静态、被动的条件变量**——在没有成功示范的 rare-success 区,教师被迫只从失败反馈里凑监督,提升微乎其微(Fig 1)。**被忽视的设计轴 = 反馈本身的结构化表示**。【原文 §1, §3.1】
+- **解决的具体痛点**:OPD 要维护一个独立大教师(贵 + 学生/教师分布失配);**自蒸馏(SDPO/OPSD)** 用模型自身(当前/EMA 权重 \(θ_{old}\))在特权上下文下当教师,既省外部 oracle 又天然对齐学生分布。**但**:自蒸馏的成败全押在"自教师监督质量"上,而现有方法**把环境反馈当成静态、被动的条件变量**——在没有成功示范的 rare-success 区,教师被迫只从失败反馈里凑监督,提升微乎其微(Fig 1)。**被忽视的设计轴 = 反馈本身的结构化表示**。【原文 §1, §3.1】
 
 - **相关工作 & 各自不足**:
   - *经典 KD*(Hinton 等):学生对齐固定教师输出,但**用固定数据、有学生-教师失配**(学生在自己生成的轨迹上被评)。
@@ -27,15 +27,15 @@
 
 ══ 第三层:怎么做 + 靠不靠谱 ══
 
-- **统一目标(预备)**:对每个 token v 定义似然比 \(τ^t_v = πθold(v|x,y<t,c)/πθ(v|x,y<t)\),clip 到 \([ϵmin,ϵmax]\) 防极端比值;统一用 **f-散度** 写匹配损失 \(L_SD(θ)=E[Σ_t Σ_v πθ(v|·)·f(τ̃^t_v)]\)(选不同 f 得 forward-KL / reverse-KL / JSD)。因轨迹从学生 πθ 采样,**目标天然 on-policy**。实践默认 **reverse-KL**,ϵmin=0.2、无上 clip。【原文 §2, §4.1】
+- **统一目标(预备)**:对每个 token v 定义似然比 \(τ^t_v = πθold(v|x,y<t,c)/πθ(v|x,y<t)\),clip 到 \([ϵmin,ϵmax]\) 防极端比值;统一用 **f-散度** 写匹配损失 \(L_SD(θ)=E[Σ_t Σ_v πθ(v|·)·f(τ̃^t_v)]\)(选不同 f 得 forward-KL / reverse-KL / JSD)。因轨迹从学生 \(π_θ\) 采样,**目标天然 on-policy**。实践默认 **reverse-KL**,\(ϵ_{min}=0.2\)、无上 clip。【原文 §2, §4.1】
 
 - **方法流水线**(Algo 1,每个训练步一个闭环):
-  1. **Rollout & Reward**:学生采 \(y∼πθ(·|x)\),拿环境反馈 c(x,y) 与奖励 R(x,y) 判对错。
-  2. **Context Update(失败才学)**:先 `CONCISE(P)` 修剪 playbook(去 stale/有害条目);若 R<阈值(失败)→ \(r ← REFLECT(x,y,c,P;θ)\) 产反思并给现有 playbook 条目打 helpful/harmful/neutral 标签;\(P ← CURATE(P,r;θ)\) 从反思生成**非冗余**新条目;若成功 → 把解缓存进 solution buffer \(B(x)←y\)、置 r=∅。
+  1. **Rollout & Reward**:学生采 \(y∼πθ(·|x)\),拿环境反馈 \(c(x,y)\) 与奖励 \(R(x,y)\) 判对错。
+  2. **Context Update(失败才学)**:先 `CONCISE(P)` 修剪 playbook(去 stale/有害条目);若 R<阈值(失败)→ \(r ← REFLECT(x,y,c,P;θ)\) 产反思并给现有 playbook 条目打 helpful/harmful/neutral 标签;\(P ← CURATE(P,r;θ)\) 从反思生成**非冗余**新条目;若成功 → 把解缓存进 solution buffer \(B(x)←y\)、置 \(r=∅\)。
   3. **Enriched Teacher Prompt**:检索 B(x)(若有),拼出富化上下文 = playbook P + 反思 r + 上次轨迹 y + 反馈 c + 缓存解 B(x)。
   4. **Policy Update**:教师 \(πθold(·|x,y<t,c,r,P,B(x))\) 产 token 级目标分布,学生最小化 `L_SD`;另对成功样本按"批次成功率函数"加 per-sample 权重(强化成功样本梯度,Appendix B)。
   5. **Teacher sync**:\(θold ← θ\),以 **EMA** 更新(rate 0.0001)。因 P、B 跨步持久,教师可用监督**随训练变好,即使当前批无成功示范**。【原文 §3.3, Algo 1】
-  - **Playbook 生命周期**:每条目记累计 (helpful h_j, harmful d_j) 计数;`CONCISE` 在更新前剪掉**净有害(d_j≥h_j)** 的条目,超预算 Mmax 则淘汰**最久未被标注**的(LRU 式)→ 收敛到"反复有用"的条目。【原文 §3.3, Appendix D】
+  - **Playbook 生命周期**:每条目记累计 (helpful \(h_j\), harmful \(d_j\)) 计数;`CONCISE` 在更新前剪掉**净有害(\(d_j≥h_j\))** 的条目,超预算 \(M_{max}\) 则淘汰**最久未被标注**的(LRU 式)→ 收敛到"反复有用"的条目。【原文 §3.3, Appendix D】
 
 - **逐组件必要性**(Table 3,移除式消融,per-test-case m@4/b@4):
   - *reflection(局部反思)*:✔最关键。MANUF-HAS 76.95→51.41。负责"短期、针对当前失败的纠正"。
@@ -61,7 +61,7 @@
   - 【推断】奖励 R 需可判对错(R<阈值才触发反思);若环境只有模糊/延迟反馈,reflect 触发与 c 的诊断价值都打折。依据=Algo 1 line 4 用 R 阈值门控。
 
 - **祛魅总结**:
-  - **真贡献(硬货)**:(a)指出 **"反馈表示"是 on-policy 自蒸馏一个被忽视的设计轴**,并用 N=1 vs N=8(Fig 3/4)干净地坐实"反思让模型从失败学";(b)三组件消融清楚(Table 3),反思是主因;(c)Fig 5"高 loss 集中在决策 token"是"教师更具纠正性"的巧妙证据;(d)对失效边界(后期退化、非单调)极诚实,并给出"先 RESD 后 GRPO"的实操建议。
+  - **真贡献(硬货)**:(a)指出 **"反馈表示"是 on-policy 自蒸馏一个被忽视的设计轴**,并用 \(N=1\) vs \(N=8\)(Fig 3/4)干净地坐实"反思让模型从失败学";(b)三组件消融清楚(Table 3),反思是主因;(c)Fig 5"高 loss 集中在决策 token"是"教师更具纠正性"的巧妙证据;(d)对失效边界(后期退化、非单调)极诚实,并给出"先 RESD 后 GRPO"的实操建议。
   - **包装/可能高估**:"substantially outperforms GRPO" 需打折——是**交互效率(单 rollout vs 8 rollout)**对比、且只在**早期**更快、后期还会被 GRPO 反超(作者自己承认)。MANUF-HAS 那个 0.57→35.80 的巨大数字是在"baseline 几乎全崩"的极端 rare-success 任务上,泛化到一般任务的幅度要看 FINER(涨幅温和)。【推断:依据=§4.4 措辞 + Table 2 任务间幅度差异】
   - **可能低估**:把自己谦称为"plug-and-play 模块"——但"跨样本反思聚合进 on-policy 蒸馏教师上下文"其实是个有普适价值的新接口,作者对其通用性(可插到更强自蒸馏目标上)只在 §6 点到。【推断】
 
@@ -71,7 +71,7 @@
 
 | 学什么信号 | 改什么 | 何时改 | 免梯度? | 记忆-技能生命周期 | 防遗忘机制 |
 |---|---|---|---|---|---|
-| 环境反馈 c + **自反思 r(诊断失败)** + 持久 playbook + 缓存成功解;经 reward 阈值门控判对错 | **参数**(学生 πθ 用 token 级 reverse-KL 对齐富化上下文下的自教师);**同时**改"教师上下文"(playbook/reflection,这部分是 prompt 级) | **在线 per-step(流式)**:每训练步 rollout→更新上下文→policy update;每批 K=4 inner-loop;单遍数据 | **否**(核心是有梯度的 on-policy 自蒸馏 KL);但**上下文构造(反思/playbook 增删)是免梯度**的 → **混合** | playbook:REFLECT/CURATE **写入**→检索拼进教师上下文→`CONCISE` **遗忘/淘汰**(净有害 d≥h 剔除、超 Mmax LRU 淘汰);solution buffer 缓存成功解供 replay | playbook **CONCISE 修剪 + LRU 淘汰**收敛到稳定有用条目;EMA 教师(rate 1e-4)平滑;§2 称 on-policy 自蒸馏本身可"找回 midtraining 遗忘的行为、防 exposure bias"【原文 §2,§3.3】 |
+| 环境反馈 \(c\) + **自反思 \(r\)(诊断失败)** + 持久 playbook + 缓存成功解;经 reward 阈值门控判对错 | **参数**(学生 \(π_θ\) 用 token 级 reverse-KL 对齐富化上下文下的自教师);**同时**改"教师上下文"(playbook/reflection,这部分是 prompt 级) | **在线 per-step(流式)**:每训练步 rollout→更新上下文→policy update;每批 K=4 inner-loop;单遍数据 | **否**(核心是有梯度的 on-policy 自蒸馏 KL);但**上下文构造(反思/playbook 增删)是免梯度**的 → **混合** | playbook:REFLECT/CURATE **写入**→检索拼进教师上下文→`CONCISE` **遗忘/淘汰**(净有害 \(d≥h\) 剔除、超 \(M_{max}\) LRU 淘汰);solution buffer 缓存成功解供 replay | playbook **CONCISE 修剪 + LRU 淘汰**收敛到稳定有用条目;EMA 教师(rate 1e-4)平滑;§2 称 on-policy 自蒸馏本身可"找回 midtraining 遗忘的行为、防 exposure bias"【原文 §2,§3.3】 |
 
 - ⑦ **开源代码 + 框架/harness**:**已开源**(PDF 内嵌链接)— GitHub **https://github.com/horizon-llm/RESD** + Project Page https://yuweizhang.notion.site/resd 【原文 首页脚注链接】。**底层框架**:**未用现成 RL 框架名(veRL/TRL 等均未提)**;基础设施 = 单节点 8× NVIDIA H200,**vLLM** 做 rollout 生成(tensor parallel × 4 GPU)+ **FSDP** 做分布式训练(Appendix G)→ **推断为基于 FSDP+vLLM 的自研/SDPO 改造代码**。【原文 §4.1, Appendix G】〔待核:仓内具体是否复用某 RL 框架,需 clone 核验〕
 

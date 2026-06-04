@@ -12,7 +12,7 @@
 - **与最近邻的 Δ**:相比 **ReasoningBank**(偏元认知策略,互补)、**ACE**(演化 playbook,本文更结构化+因果+provenance)、**Memento**(存原始轨迹不抽象),关键差异=**从失败/低效也提取(recovery/optimization tip,而非只学成功)+ 因果回溯定位病根步 + subtask 粒度分解实现跨任务迁移 + provenance 追溯**。这个差异有用,因为失败/低效里藏着成功推不出的信息,且因果归因能把"失败发生在第15步"修正为"病根在第3步"。【原文 §1, §3】
 
 ══ 第三层:怎么做 + 靠不靠谱 ══
-- **方法流水线(四组件三阶段,Fig.1)**:**EXTRACTION**——① **Trajectory Intelligence Extractor** 语义解析 agent 推理模式 →② **Decision Attribution Analyzer** 做因果归因(immediate/proximate/root cause,定位哪个决策导致失败/恢复/低效)→③ **Contextual Learning Generator** 产三类带 provenance 的 tip(strategy/recovery/optimization)并做 **subtask 级分解**(认证/取数/处理/完成等可复用逻辑相);**STORAGE & MGMT**——subtask 描述泛化去实体 → 语义聚类(HAC@~0.85)把跨任务共享子任务模式的 tip 聚在一起 → **LLM-based merging 去重/解冲突(成功轨迹优先)/综合** → 双表示存储(向量嵌入 + 结构化元数据);**RETRIEVAL & USAGE**——cosine(τ∈0.5-0.7,top5)或 **LLM-guided 元数据过滤** → 优先级加权排序 → 注入 prompt 的 "guidelines" 段。形成自强化循环但非在线梯度更新。【原文 §3, Fig.1】
+- **方法流水线(四组件三阶段,Fig.1)**:**EXTRACTION**——① **Trajectory Intelligence Extractor** 语义解析 agent 推理模式 →② **Decision Attribution Analyzer** 做因果归因(immediate/proximate/root cause,定位哪个决策导致失败/恢复/低效)→③ **Contextual Learning Generator** 产三类带 provenance 的 tip(strategy/recovery/optimization)并做 **subtask 级分解**(认证/取数/处理/完成等可复用逻辑相);**STORAGE & MGMT**——subtask 描述泛化去实体 → 语义聚类(HAC@~0.85)把跨任务共享子任务模式的 tip 聚在一起 → **LLM-based merging 去重/解冲突(成功轨迹优先)/综合** → 双表示存储(向量嵌入 + 结构化元数据);**RETRIEVAL & USAGE**——cosine(\(\tau\in0.5\text{-}0.7\),top5)或 **LLM-guided 元数据过滤** → 优先级加权排序 → 注入 prompt 的 "guidelines" 段。形成自强化循环但非在线梯度更新。【原文 §3, Fig.1】
 - **逐组件必要性**:① 因果归因——没它退回普通"成功 workflow 记忆"(AWM 类),无法定位病根;② 失败/低效提取(recovery/optimization)——没它丢掉成功推不出的边界信息;③ subtask 粒度泛化——没它 tip 绑定具体实体、无法跨任务迁移;④ 质量感知整理(成功优先冲突解决 + provenance)——没它会触发 Xiong 指出的错误传播/误配重放。论文用配置对比(tip 粒度 × 检索策略)代替传统 ablation,显示**tip 粒度驱动 TGC、检索策略(LLM-guided)驱动 SGC**。【原文 §3, §4】
 - **关键机制(直觉)**:① **因果回溯**——失败常在第15步爆发但病根在第3步(早期前置校验缺失),归因到 root cause 才能生成有用的 recovery tip;② **subtask 抽象 + 聚类合并**——把"在 Amazon 删购物车"泛化成"清空购物车用 bulk 操作",再把不同任务里同子任务模式的 tip 聚类合并去冗,实现跨任务迁移;③ **三类 tip 的互补**——strategy(怎么做对)/recovery(失败后怎么救,含失败模式+识别信号+纠正步骤)/optimization(成功但低效怎么更省)。【原文 §3】
 - **实验与证据(支撑核心主张的关键数字)**:
@@ -29,7 +29,7 @@
 | **改什么** | **外部记忆(prompt-level)** 与 **harness/context**——产结构化 tip 注入 prompt"guidelines"段；**不动任何参数** |
 | **何时改** | **离线批量**：轨迹完成后跑三阶段提取+聚合；运行时(per-task)检索注入。自强化循环但非在线梯度更新 |
 | **免梯度?** | **是（纯 LLM/提示，全程零参数更新）**——明确把 RL 列为对比项并指其"需大量数据、算力贵、黑箱、不分 tip 类别"的不适用性 |
-| **记忆-技能生命周期** | 写入(轨迹→三类 tip,带 id/category/steps/trigger/priority/source-traj provenance)→**整理(描述泛化去实体→语义聚类 HAC@~0.85→LLM 合并:去重/冲突解决[成功轨迹优先]/综合)**→检索(cosine τ∈0.5-0.7,top5 或 LLM-guided 元数据过滤)→注入；**遗忘=合并去冗 + 选择性保留**(引 Xiong 实证:选择增+选择删 +10%) |
+| **记忆-技能生命周期** | 写入(轨迹→三类 tip,带 id/category/steps/trigger/priority/source-traj provenance)→**整理(描述泛化去实体→语义聚类 HAC@~0.85→LLM 合并:去重/冲突解决[成功轨迹优先]/综合)**→检索(cosine \(\tau\in0.5\text{-}0.7\),top5 或 LLM-guided 元数据过滤)→注入；**遗忘=合并去冗 + 选择性保留**(引 Xiong 实证:选择增+选择删 +10%) |
 | **防遗忘机制** | 不适用(不动参数、无灾难性遗忘问题)；靠**provenance + 质量感知整理**抑制错误传播/误配重放两大失败模式 |
 
 🖼 **关键图 top-2** [light]：

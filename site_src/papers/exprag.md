@@ -29,7 +29,7 @@
 ══ 第三层：怎么做 + 靠不靠谱 ══
 
 - **方法流水线（§3 + Figure 1）**：
-  1. **离线建经验库（once）**：收集 agent rollouts → 每条轨迹 τ 用编码器 φ(τ) 编成 key embedding → 形成索引 \({(τ_i, e_i)}\)。轨迹存为**原始 chat 格式**（observation→user turn，action→assistant turn），不过滤不聚合。【原文 §3 Indexing】
+  1. **离线建经验库（once）**：收集 agent rollouts → 每条轨迹 τ 用编码器 \(φ(τ)\) 编成 key embedding → 形成索引 \({(τ_i, e_i)}\)。轨迹存为**原始 chat 格式**（observation→user turn，action→assistant turn），不过滤不聚合。【原文 §3 Indexing】
   2. **构造 query 检索**：决策步 t 用当前 context（task 描述 + 历史 h_t）编成 query → 点积最近邻取 **top-K** 轨迹。两种模式：**static**（只在 t=0 查一次，用 task 描述当 query/key）/ **dynamic**（每步重查，用部分轨迹当 query、全轨迹当 key，但要清 KV cache 重编码）。【原文 §3 + Fig1】
   3. **经验条件生成**：检索到的轨迹拼成 **memory block**（模板区分"successful/unsuccessful trajectories"）插进 system prompt → LLM policy π 在 memory + 对话历史上**自回归产出动作**。【原文 §3 + 附录 B.3】
   4. **（核心）训练期注入 = ExpRAG-LoRA**：把同一套检索 memory block 也加到**每条训练上下文**里做 LoRA SFT（仅在 assistant token 上算 CE 损失），让模型学会"靠检索轨迹解题"而非背训练目标。【原文 §4.4.2】
@@ -43,7 +43,7 @@
   - **无相关轨迹时的鲁棒性**：空 index 时 ExpRAG-LoRA 掉最多（训练有检索、推理抽走=分布漂移）；保留训练 index（mismatched）比空 index 好——建议"宁可用训练经验也别完全没经验"。【原文 §4.4.4 Table4，有消融】
 - **关键机制/公式（直觉）**：核心没有花哨公式——检索是**点积最近邻 top-K**，生成是标准自回归 \(π(·|m_t, c(τ)_{≤t})\)，训练是**只在 assistant token 上的 CE**。最"机制性"的洞见是**多轮 chat 序列化优于逐步序列化**：把整条轨迹当一个多轮对话编码，可**跨轮复用 KV-cache**，训练快很多且性能相当（§3）。以及一个**反直觉训练动力学**：OOD 成功率常在 validation loss 已上升（常被当过拟合）之后**继续涨**，最佳 OOD checkpoint 常落在 50 epoch（远超常规 early-stop）——作者类比 **grokking / 延迟泛化**，但明确声明**只给经验观察、不claim 机制解释**。【原文 §3 / §4.4.1】
 - **实验与证据**：
-  - 环境：**ALFWorld**（家居操作，二值成功；6 task-types）、**ScienceWorld**（小学科学课程，dense score∈[-1,1]，转二值；10 topics）。把每环境 task 组切成 **easy（训练）/ hard（held-out OOD）**。backbone：**Ministral-3-8B / Gemma-3-4B / Qwen2.5-7B / Qwen2.5-7B-1M**（均 instruction-tuned）。检索器 = **Qwen3-Embedding-0.6B（固定，不调）**。【原文 §4.1/§4.2/附录B】
+  - 环境：**ALFWorld**（家居操作，二值成功；6 task-types）、**ScienceWorld**（小学科学课程，dense \(score∈[-1,1]\)，转二值；10 topics）。把每环境 task 组切成 **easy（训练）/ hard（held-out OOD）**。backbone：**Ministral-3-8B / Gemma-3-4B / Qwen2.5-7B / Qwen2.5-7B-1M**（均 instruction-tuned）。检索器 = **Qwen3-Embedding-0.6B（固定，不调）**。【原文 §4.1/§4.2/附录B】
   - **支撑核心主张的关键实验**：① **Table 3** 四 backbone × 两环境，ExpRAG-LoRA 在 OOD hard 上多数最强、裸 LoRA 崩（如 Qwen2.5-7B ALFWorld hard：LoRA 4.9 → ExpRAG-LoRA 90.2；ScienceWorld hard 同样大幅领先）。② **Table 2** 检索从 No-RAG 大幅提升（ALFWorld +60 点）。③ **Table 1b** LoRA baseline 94.1% 超 ETO/SAND/规则专家——立"先建强 baseline"。④ **Table 4** 无相关轨迹时的退化诊断。【原文 Table1/2/3/4】
   - **baseline 公平性**【原文已声明 + 推断】：Table 1 是**跨论文聚合比较**，作者**明确标注"应定性解读"**（不同 setup），很诚实；本文自做的 Table 2/3/4 是同 backbone 同 setup 的受控对比，公平性好。一个"看着强但需注意"的点【推断】：所有经验库都用**脚本专家轨迹（环境内置策略）**而非真实 LLM 自产轨迹，作者也承认其失败模式**不反映 LLM agent 真实错误**——故"检索对真实自产错误的迁移"未被验证。【依据=§5.1 Limitations 明述】
 - **假设与失效边界**：
@@ -62,7 +62,7 @@
 
 | 学什么信号 | 改什么 | 何时改 | 免梯度? | 记忆-技能生命周期 | 防遗忘机制 |
 |---|---|---|---|---|---|
-| 经验库（过去整条轨迹，含成功/失败标注）;监督信号=专家轨迹的 next-token（CE）;无环境 reward/无自反思 | 两种：① **prompt/记忆**（推理期 ExpRAG，检索轨迹注入 system prompt，LLM 不变）;② **参数**（ExpRAG-LoRA，低秩适配器 q/k/v/output_proj，rank8） | ExpRAG=test-time per-step（dynamic）或 per-episode（static）;ExpRAG-LoRA=离线批量训练（≤50 epoch） | **混合**：纯 ExpRAG 免梯度;ExpRAG-LoRA 有梯度但**仅 LoRA 适配器**（base 冻结） | 写入=**离线一次性建库、之后只读**（无在线写）→检索=Qwen3-Embedding 点积 top-K（static/dynamic）→**淘汰/遗忘=无**（固定库，作者明列为 future work）→共享=经验可来自他 agent/专家 demo | **隔离式**（知识在外部只读库，base 冻结故底层不遗忘）;ExpRAG-LoRA 侧无显式防遗忘，但"训练期带检索"被论证为**抗 OOD 崩塌**的功能性替代;无几何/KL/merging 【原文 §5.1 承认无 consolidation】 |
+| 经验库（过去整条轨迹，含成功/失败标注）;监督信号=专家轨迹的 next-token（CE）;无环境 reward/无自反思 | 两种：① **prompt/记忆**（推理期 ExpRAG，检索轨迹注入 system prompt，LLM 不变）;② **参数**（ExpRAG-LoRA，低秩适配器 q/k/v/output_proj，rank8） | ExpRAG=test-time per-step（dynamic）或 per-episode（static）;ExpRAG-LoRA=离线批量训练（\(≤50\) epoch） | **混合**：纯 ExpRAG 免梯度;ExpRAG-LoRA 有梯度但**仅 LoRA 适配器**（base 冻结） | 写入=**离线一次性建库、之后只读**（无在线写）→检索=Qwen3-Embedding 点积 top-K（static/dynamic）→**淘汰/遗忘=无**（固定库，作者明列为 future work）→共享=经验可来自他 agent/专家 demo | **隔离式**（知识在外部只读库，base 冻结故底层不遗忘）;ExpRAG-LoRA 侧无显式防遗忘，但"训练期带检索"被论证为**抗 OOD 崩塌**的功能性替代;无几何/KL/merging 【原文 §5.1 承认无 consolidation】 |
 
 - ⑦ **开源代码 + 框架/harness**：**未找到本作的开源代码仓库**——全文（含附录 A–F）**无 github/项目主页/"code available"声明**；仅给出所用**现成 HF 模型**链接（检索器 `Qwen/Qwen3-Embedding-0.6B`，四个 backbone 的官方 checkpoint）与库主页（sbert.net）。【原文 附录 B.1/B.5，已全文核查 grep 仅命中 huggingface 模型链接】〔代码可用性=未开源/未找到，需 P3 仓库核查环节确认是否后续放出〕【待核：是否有未在 PDF 写出的仓库】
   - **使用框架/harness（明确）**：训练 = **TorchTune**（Meta PyTorch finetuning 库，LoRA SFT，仅 assistant token CE）;推理 = **HuggingFace Transformers**（作者称更高效）;嵌入 = **Sentence-Transformers**;环境 = **ALFWorld / ScienceWorld** 官方 env。**未用 veRL/TRL/OpenRLHF/LLaMA-Factory**（非 RL 训练，纯监督 LoRA）。【原文 §4.2/附录 B.4】
@@ -82,7 +82,7 @@
 - 🖼 **关键图 top-2** [light]：
 
   ![图1-ExpRAG Agent 总览（方法主图）](../figures/exprag_fig1.png)
-  · 这是**原文 Figure 1**：完整 pipeline——**离线**建 Experience Bank（agent rollouts → key encoding φ(τ) → 轨迹索引），**在线**用 task 描述+历史编 query → 检索 top-K 轨迹 → 拼成 memory block 注入 LLM policy 的 system prompt → 输出动作 a_t → 环境返回 observation；右下注明 **static（t=0 查一次）vs dynamic（每步重查）**。选它因为一图说清"只读经验库 + 检索注入上下文"的全部机制，是方法精华。【原文 Figure 1】
+  · 这是**原文 Figure 1**：完整 pipeline——**离线**建 Experience Bank（agent rollouts → key encoding \(φ(τ)\) → 轨迹索引），**在线**用 task 描述+历史编 query → 检索 top-K 轨迹 → 拼成 memory block 注入 LLM policy 的 system prompt → 输出动作 a_t → 环境返回 observation；右下注明 **static（t=0 查一次）vs dynamic（每步重查）**。选它因为一图说清"只读经验库 + 检索注入上下文"的全部机制，是方法精华。【原文 Figure 1】
 
   ![表3-检索增强微调的 OOD 泛化（核心结果）](../figures/exprag_fig2.png)
   · 这是**原文 Table 3**（关键表）：四 backbone × {ALFWorld, ScienceWorld} × Easy(in-distribution)/Hard(OOD)，对比 ExpRAG / LoRA(no ExpRAG) / LoRA(with ExpRAG) / **ExpRAG-LoRA**。选它因为它是全文最 load-bearing 的证据——直观展示"**裸 LoRA 在 hard(OOD) 任务上崩盘、而 ExpRAG-LoRA 稳住并多数最强**"，正是论文"learn to learn from experience"主张的兑现。【原文 Table 3】

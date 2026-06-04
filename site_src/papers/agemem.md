@@ -24,19 +24,19 @@
 ══ 第三层：怎么做 + 靠不靠谱 ══
 
 - **方法流水线（统一工具 + 三阶段 RL + step-wise GRPO,对应 Fig 1c）**：
-  1. **统一 RL 形式化(§3.1)**：状态 \(s_t=(C_t, M_t, T)\)——短期上下文 C_t、长期记忆库 M_t、任务说明 T(含 query q、上下文信息 I_q、训练时的期望答案 A_q)。动作来自**混合动作空间**(语言生成 + 记忆操作),由 LLM 参数化策略 π_θ 决定。累积奖励 \(R(τ)=Σ w_i R_i(τ) + P_penalty\)(Eq.1)。
-  2. **六个记忆工具(§3.2, Table 1)**：**LTM** = ADD(存新知识)/UPDATE(改条目)/DELETE(删过时);**STM** = RETRIEVE(从 M_t 取 top-k 进 C_t)/SUMMARY(压缩历史片段)/FILTER(删与某 criterion 语义相似度超阈值 θ_f 的上下文)。把记忆控制从外部启发式 pipeline 变成决策的内在组件。
-  3. **三阶段轨迹结构(§3.3)**：每条轨迹 τ=(τ¹,τ²,τ³)。**Stage 1 LTM 构建**——casual 交互中识别并存关键信息进 LTM;**Stage 2 STM 抗干扰**——**重置 C_t 但保留 M_t**,注入 distractor(像样但与目标无关的话),逼 agent 学会 filter/summarize 噪声;**Stage 3 整合推理**——给正式 query,必须从 M_t 检索 + 管理 C_t + 作答。**关键**:M_t 跨三阶段持久(早期知识影响后期),但 C_t 在 Stage 1→2 间重置(防信息泄漏,逼真检索)。
+  1. **统一 RL 形式化(§3.1)**：状态 \(s_t=(C_t, M_t, T)\)——短期上下文 \(C_t\)、长期记忆库 \(M_t\)、任务说明 T(含 query q、上下文信息 \(I_q\)、训练时的期望答案 \(A_q\))。动作来自**混合动作空间**(语言生成 + 记忆操作),由 LLM 参数化策略 \(\pi_\theta\) 决定。累积奖励 \(R(τ)=Σ w_i R_i(τ) + P_penalty\)(Eq.1)。
+  2. **六个记忆工具(§3.2, Table 1)**：**LTM** = ADD(存新知识)/UPDATE(改条目)/DELETE(删过时);**STM** = RETRIEVE(从 \(M_t\) 取 top-k 进 \(C_t\))/SUMMARY(压缩历史片段)/FILTER(删与某 criterion 语义相似度超阈值 \(\theta_f\) 的上下文)。把记忆控制从外部启发式 pipeline 变成决策的内在组件。
+  3. **三阶段轨迹结构(§3.3)**：每条轨迹 \(\tau=(\tau^1,\tau^2,\tau^3)\)。**Stage 1 LTM 构建**——casual 交互中识别并存关键信息进 LTM;**Stage 2 STM 抗干扰**——**重置 \(C_t\) 但保留 \(M_t\)**,注入 distractor(像样但与目标无关的话),逼 agent 学会 filter/summarize 噪声;**Stage 3 整合推理**——给正式 query,必须从 \(M_t\) 检索 + 管理 \(C_t\) + 作答。**关键**:\(M_t\) 跨三阶段持久(早期知识影响后期),但 \(C_t\) 在 Stage 1→2 间重置(防信息泄漏,逼真检索)。
   4. **step-wise GRPO(§3.4)**：每条轨迹算终局奖励 \(r_T=R(τ)\),组内归一化得 \(A_T=(r_T−μ)/(σ+ε)\)(Eq.5),再**广播到该轨迹所有前序步 \(A_t=A_T\)**(Eq.6)——给 Stage 1/2 所有记忆+推理动作一致的学习信号,实现跨异构阶段的长程信用分配。
-- **复合奖励设计(§3.5)**：\(R(τ)=w·R + P_penalty\),R=[R_task, R_context, R_memory]。
-  - **R_task**:LLM-judge 打分 S_judge∈[0,1],主信号、占主导。
+- **复合奖励设计(§3.5)**：\(R(τ)=w·R + P_penalty\),\(R=[R_{task}, R_{context}, R_{memory}]\)。
+  - **\(R_{task}\)**:LLM-judge 打分 \(S_{judge}\in[0,1]\),主信号、占主导。
   - **R_context**(评 STM):压缩效率 + 预防性动作(早 summarize/filter 防溢出) + 信息保留(罚丢关键 query 相关内容)。
   - **R_memory**(评 LTM):存储质量(高质量可复用条目占比) + 维护(有意义的 update/delete 防陈旧) + 语义相关性(LLM 打分检索记忆 vs query)。
   - **P_penalty**:罚超对话轮数/上下文溢出。
 - **逐组件必要性（消融充分）**：
   - **LTM/STM/RL 渐进消融(Fig 4,Qwen2.5-7B)**:Base → **+LT**(只 LTM 工具,无 RL):+10.6%/+14.2%/+7.4%(ALF/Sci/Hotpot) → **+LT/RL**:再升(HotpotQA +6.3%) → **+LT/ST/RL**(full):最佳,总提升 +13.9%/+21.7%/+16.1%。**加 STM 工具在 SciWorld(+3.1%)/HotpotQA(+2.4%)增益最大**,证明学习型上下文管理 > 静态 RAG。
   - **奖励函数消融(Fig 5/Table 4)**:All-Returns(完整复合奖励) vs Answer-Only(只 R_task)——前者收敛更快、J 更高(0.544 vs 0.509)、**MQ 显著更高(0.533 vs 0.479)**;虽然用更多 token(2117 vs 2078),但额外的上下文+记忆操作对推理质量有实质贡献 → 证明 R_context/R_memory 不是摆设。
-  - **FILTER 阈值 θ_f(Table 5)**:在 [0.4,0.8] 稳定,不敏感;太低过度过滤丢有用上下文,太高放进边缘上下文降 MQ。
+  - **FILTER 阈值 \(\theta_f\)(Table 5)**:在 \([0.4,0.8]\) 稳定,不敏感;太低过度过滤丢有用上下文,太高放进边缘上下文降 MQ。
   - **工具使用统计(Table 3)**:RL 后 ADD(0.92→1.64)/UPDATE(~0→0.13) 升、**RETRIEVE 降(2.31→1.95)**——不是欠训练,而是"先把 Stage-1 存好,检索就更 selective/query-driven",检索降反而伴随任务性能和 MQ 提升。**很有说服力的协同证据**。
 - **关键机制直觉**：核心是"**把记忆当 agent 自己的动作、用一个延迟的任务奖励同时教会它存取滤摘**"。直觉:与其给 LTM 和 STM 各写一套规则、再各训一个模块,不如让同一个策略在"最后答对没"的压力下,自己学到"Stage 1 该多存点好货,Stage 3 检索就能少而精"。step-wise 广播则解决"记忆操作当下没奖励、没法学"的死结。
 - **实验与证据**：
@@ -61,7 +61,7 @@
 
 | 学什么信号 | 改什么 | 何时改 | 免梯度? | 记忆-技能生命周期 | 防遗忘机制 |
 |---|---|---|---|---|---|
-| **环境 reward(复合:R_task[LLM-judge] + R_context[STM 质量] + R_memory[LTM 质量] + 罚项)** | **模型参数**(step-wise GRPO 微调 agent 策略,LTM+STM 操作均为工具调用动作) | **离线批量 RL 训练**(三阶段课程,step-wise GRPO);推理时 6 个记忆工具 **per-step 在线**调用但参数冻结 | **否**(梯度 RL:step-wise GRPO,终局 advantage 广播到全轨迹) | 写入=ADD→更新=UPDATE→检索=RETRIEVE(top-k)→压缩=SUMMARY→过滤=FILTER(STM)→淘汰=DELETE;**LTM 跨三阶段持久,STM 在阶段间重置** | **学习层面**=GRPO 的 **KL 正则**(对 π_ref)防漂移;**记忆层面**=R_memory 的"maintenance"项奖励有意义的 UPDATE/DELETE 防陈旧 + R_context"信息保留"项罚丢关键内容;**无几何共识/merging/参数隔离** |
+| **环境 reward(复合:\(R_{task}\)[LLM-judge] + \(R_{context}\)[STM 质量] + \(R_{memory}\)[LTM 质量] + 罚项)** | **模型参数**(step-wise GRPO 微调 agent 策略,LTM+STM 操作均为工具调用动作) | **离线批量 RL 训练**(三阶段课程,step-wise GRPO);推理时 6 个记忆工具 **per-step 在线**调用但参数冻结 | **否**(梯度 RL:step-wise GRPO,终局 advantage 广播到全轨迹) | 写入=ADD→更新=UPDATE→检索=RETRIEVE(top-k)→压缩=SUMMARY→过滤=FILTER(STM)→淘汰=DELETE;**LTM 跨三阶段持久,STM 在阶段间重置** | **学习层面**=GRPO 的 **KL 正则**(对 \(\pi_{ref}\))防漂移;**记忆层面**=\(R_{memory}\) 的"maintenance"项奖励有意义的 UPDATE/DELETE 防陈旧 + \(R_{context}\)"信息保留"项罚丢关键内容;**无几何共识/merging/参数隔离** |
 
 - ⑦ **开源代码 + 框架/harness**：**框架=Agentscope 1.0(构建 agent,Gao et al. 2025a,Alibaba)+ Trinity-RFT(RL 微调,Pan et al. 2025a,arXiv:2505.17826,Alibaba)**——【原文§4.1 Implementation 明写】"We build agents using the **Agentscope** framework and fine-tune AgeMem using the **Trinity** framework"。**AgeMem 自身代码仓库:本 PDF 正文/附录未给出官方链接**(附录里出现的 github 链接均为 baseline 实现:langchain-ai/langmem、WujiangXu/A-Mem、mem0ai/mem0)〔待核:严格按"PDF 没写就不编"原则,AgeMem 官方代码 URL 待 P3 用 WebSearch 快照核验后补;但所用 RL 框架 Trinity-RFT 与 Agentscope 均为阿里开源、可据此定位〕。
 - 💰 **资源/成本与可扩展性**：【原文未给精确 GPU 数/训练时长】上下文长度上限 2048 token(超限罚分);**只在 HotpotQA 训练**(数据省);step-wise GRPO,B 个任务 × K 个 rollout × 平均轨迹长 T̄ 的经验集。**推理效率**:Fig 3 显示 STM 工具比 RAG 省 token(−3.1%~−5.1%);Table 3 总工具调用 4.33→4.92(noRL→GRPO,Qwen2.5)。**部署优势**:不依赖外部 expert LLM(C3),降推理成本。

@@ -19,21 +19,21 @@
 - **与最近邻工作的 Δ**:① 与 **Yan et al.(PaceEvolve)** 的 Δ:目标几乎同(他们是折扣版),但 ORBIT 在**完全未见的任务类**(训 RPS/Minesweeper/Hangman/Wordle/Blackjack → 测 Maze/Mastermind)评测,故能证明是"真 ICL 泛化"而非记环境——这是关键差异,直接回应"是否只是记忆"。② 与 **PAPRIKA** 的 Δ:PAPRIKA 用偏好信号做后训,Mastermind 仅 2%;ORBIT 用 GRPO trajectory-level 完成度奖励,Mastermind Ep3 达 0.59。③ 与 **Algorithm Distillation 等 ICRL** 的 Δ:不从零训、起点是有语义先验的预训练 LLM,故能泛化到异构未见任务。【原文 §1.1/§4】
 
 ══ 第三层:怎么做 + 靠不靠谱 ══
-- **方法流水线**(输入预训练 LLM + 多环境任务分布 → 输出会 in-context 在线学习的 meta-policy Π):
-  1. **建模**:每任务=有限步 episodic MDP,部分可观测(环境参数如迷宫地图初始未知);agent 用参数 θ,只靠 context 内 transcript h_{e,t} 选动作(Alg.1 跨 episode 拼接);
+- **方法流水线**(输入预训练 LLM + 多环境任务分布 → 输出会 in-context 在线学习的 meta-policy \(Π\)):
+  1. **建模**:每任务=有限步 episodic MDP,部分可观测(环境参数如迷宫地图初始未知);agent 用参数 θ,只靠 context 内 transcript \(h_{e,t}\) 选动作(Alg.1 跨 episode 拼接);
   2. **多 episode 交互协议**:对固定 MDP 跑 T=3 episode,每 episode 重置初始态但保持 (P,r) 不变,**全程 transcript 留在 context**;
-  3. **奖励设计**:**忽略环境的 process reward,统一用 0-1 完成度奖励**,轨迹级 reward = 该 trajectory 内成功完成次数 R(M;τ)=Σ I_t——避免不同任务奖励尺度不均导致梯度被某任务主导;
-  4. **meta 目标**:max_Π E[R(M;τ)],等价于最小化 in-context regret(早 episode 牺牲即时回报换信息、后 episode 利用);
-  5. **优化**:用 **GRPO**(组内 K=4 轨迹算相对优势,无 value function),PPO 式非对称 clip (ε_low=0.2, ε_high=0.28),**关掉 entropy 和 KL 正则**,开 thinking mode。【原文 §2/§3/§4.2】
+  3. **奖励设计**:**忽略环境的 process reward,统一用 0-1 完成度奖励**,轨迹级 reward = 该 trajectory 内成功完成次数 \(R(M;τ)=Σ I_t\)——避免不同任务奖励尺度不均导致梯度被某任务主导;
+  4. **meta 目标**:\(\max_Π E[R(M;τ)]\),等价于最小化 in-context regret(早 episode 牺牲即时回报换信息、后 episode 利用);
+  5. **优化**:用 **GRPO**(组内 K=4 轨迹算相对优势,无 value function),PPO 式非对称 clip (\(ε_{low}=0.2, ε_{high}=0.28\)),**关掉 entropy 和 KL 正则**,开 thinking mode。【原文 §2/§3/§4.2】
 - **逐组件必要性 + 消融**:
-  · **跨 episode history(多 episode 结构)**:核心,无替代消融但有**对照基线**——"single-episode RL baseline"(同任务分布、单 episode 完成度奖励训)在 Fig3/Table2 早期略升、随 episode 推进**饱和甚至退化**(Mastermind Δ=−0.06),证明"必须多 episode 才学到 ICL"。【原文 §4.3 Table2】
+  · **跨 episode history(多 episode 结构)**:核心,无替代消融但有**对照基线**——"single-episode RL baseline"(同任务分布、单 episode 完成度奖励训)在 Fig3/Table2 早期略升、随 episode 推进**饱和甚至退化**(Mastermind \(Δ=−0.06\)),证明"必须多 episode 才学到 ICL"。【原文 §4.3 Table2】
   · **统一 0-1 完成度奖励(弃 process reward)**:论证性必要——作者论证若用各任务原生 process reward,尺度不均会让大尺度任务主导梯度;且引 Kimi K1.5 佐证"去 step-wise 信用分配反而鼓励多样推理路径、从最终结果学试错"。**无直接 A/B 消融**(标出:未做该消融)。【原文 §3.1/§3.2】
   · **GRPO 而非 PPO/actor-critic**:与稀疏 outcome 奖励匹配(GRPO 天然 trajectory-level、无 value function);属设计选择。
   · **关 entropy/KL 正则**:训练设置选择,无单独消融。【原文 §4.2】
-- **关键机制直觉**:in-context regret RegT = T·J*−E[ΣG(e)] 这个目标"逼"出探索——要让总回报接近 T 倍单局最优,模型**不能**每局都贪心(否则前几局踩同样的坑),必须在早 episode 主动试新动作降低不确定性,把信息存进 context 供后续利用。Table4 量化验证了这点:**条件于前面失败**,ORBIT 在 Ep2 探索 4.69 个新状态、Ep3 探索 1.48 个,均高于 RL baseline(4.11/1.27)和 base(1.64/0.94)——即"失败后真的去试不一样的"。这种"reflect-and-adapt"是涌现的,**不靠显式 reflect 指令**(Table3 定性 trace 显示模型自发在 <think> 里总结前两局失败再换路线)。【原文 §2/§4.4 Table3/4】
+- **关键机制直觉**:in-context regret \(\text{Reg}_T = T·J^*−E[ΣG(e)]\) 这个目标"逼"出探索——要让总回报接近 T 倍单局最优,模型**不能**每局都贪心(否则前几局踩同样的坑),必须在早 episode 主动试新动作降低不确定性,把信息存进 context 供后续利用。Table4 量化验证了这点:**条件于前面失败**,ORBIT 在 Ep2 探索 4.69 个新状态、Ep3 探索 1.48 个,均高于 RL baseline(4.11/1.27)和 base(1.64/0.94)——即"失败后真的去试不一样的"。这种"reflect-and-adapt"是涌现的,**不靠显式 reflect 指令**(Table3 定性 trace 显示模型自发在 <think> 里总结前两局失败再换路线)。【原文 §2/§4.4 Table3/4】
 - **实验与证据**:7 个游戏(训 5:RPS/Minesweeper/Hangman/Wordle/Blackjack;测 2:Maze/Mastermind,**完全未见**),训练 512 实例/任务、测试 256 实例。核心证据:① Fig3/Table2——ORBIT(8B)在两个未见任务上 Ep3 成功率 Maze 0.55(+0.33 vs base)、Mastermind 0.59(+0.32),且**随 episode 单调上升**;RL baseline Mastermind 反降(−0.06)→证明是真 in-context 适应而非更强静态策略;② Fig1——Qwen3-14B 追平 GPT-5.2、远超 RL 微调;③ Fig5——4B→8B→14B scaling,增益主要落在后期 episode(Ep3 涨最多、Ep1 几乎不涨,14B 的 Ep1 甚至略降)→佐证"大模型把早期 episode 更多用于探索"。**baseline 公平性**:RL baseline 用相同任务分布、相同 GRPO,只差"单 episode 完成度奖励 vs 多 episode"——这是最干净的对照,直接隔离 multi-episode 的贡献。**"看着强但没回答核心问题"的风险**:Fig1 与 GPT-5.2 比的是绝对成功率,但 GPT-5.2 未经 ORBIT 训练,这更像"小模型经训能追平大模型"的展示,非同条件对比(作者用意也确实是 headroom 展示)。【原文 §4.3/§4.5/Fig1/3/5/Table2/4】
 - **假设与失效边界**:【原文】§5 明说受 **32k context** 限制只能短 horizon(每任务 3 episode);只训了 **5 个环境**。【推断】① 测试任务若有效信息塞不进 context window(长 horizon)→ in-context 适应失效(作者也指此为 future,需大 context 或 memory-augmented 模型);② 测试任务与训练分布差异过大(非"同类未见")→ 涌现的探索策略可能不迁移(Fig1 强调 unseen 但同类才有迁移);③ 任务必须"可多 episode 重复"(一次性任务无法用此协议);④ 统一 0-1 奖励在 process reward 确实有用的场景可能丢信号(作者承认是 trade-off)。
-- **祛魅总结**:【推断】**真贡献(硬货)**:用最朴素的"多任务多 episode meta-RL + GRPO + 统一完成度奖励",**不加任何记忆/reflection 模块**,就让 8B 开源模型在**完全未见任务**上涌现出 genuine in-context online learning(Table4 的 ΔStates 是很硬的行为证据),并展示了 scaling headroom——干净、可复现(开源)、隔离实验做得好。**包装/可质疑**:① "追平 GPT-5.2"是 headline 营销味,非同条件对比;② 只 5 个训练环境、2 个测试环境、3 episode、32k context,**规模很小**,能否扩到真实长 horizon agent 任务完全未验证(作者诚实地全列为 limitation);③ "弃 process reward"的论证主要靠引用(Kimi K1.5)而非自身消融,稍弱。整体作者对局限的披露相当诚实,未明显高估。
+- **祛魅总结**:【推断】**真贡献(硬货)**:用最朴素的"多任务多 episode meta-RL + GRPO + 统一完成度奖励",**不加任何记忆/reflection 模块**,就让 8B 开源模型在**完全未见任务**上涌现出 genuine in-context online learning(Table4 的 \(Δ\text{States}\) 是很硬的行为证据),并展示了 scaling headroom——干净、可复现(开源)、隔离实验做得好。**包装/可质疑**:① "追平 GPT-5.2"是 headline 营销味,非同条件对比;② 只 5 个训练环境、2 个测试环境、3 episode、32k context,**规模很小**,能否扩到真实长 horizon agent 任务完全未验证(作者诚实地全列为 limitation);③ "弃 process reward"的论证主要靠引用(Kimi K1.5)而非自身消融,稍弱。整体作者对局限的披露相当诚实,未明显高估。
 
 🎯 **机制速览 6 轴** [light]
 | 维度 | 内容 |

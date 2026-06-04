@@ -6,7 +6,7 @@
 
 - 🟦 **TL;DR**:已知"RL 微调比 SFT 忘得少",但**为什么**?本文从**机制可解释性(circuit)** 角度回答:大模型的能力由内部"电路"(一组注意力头 + MLP + 残差通路)实现。作者提出**differential circuit vulnerability(差异电路脆弱度)**——用 head 级"掩码"(Differential Binary Masking, DBM)量化每个注意力头在微调后被破坏多少。在 Qwen2.5-3B-Instruct 上(任务 A=科学问答 SciKnowEval,任务 B=一堆保持力 benchmark)对比发现:**SFT 像"压缩器"**——把新任务塞进一小撮"关键专家头"、抛弃大量基础电路(基础电路保留 52%);**RL(Dr.GRPO)像"分布式适配器"**——把适配摊薄到很多头、几乎不破坏基础电路(保留 68%);**RL 还在第 2 epoch"回收/修复"被打乱的电路**(保留率 69.8%→72.5%,而 SFT 单调下滑 63.5%→59.0%,差 13.5pp)。代价是 RL 学新任务更慢。【原文 摘要+图1+§4.2】
 
-- **最巧的一步**:用 **DBM 在 base/SFT/RL 三个模型上各自独立发现电路,再做"跨模型电路对比"(faithfulness + mask shift Δm_h + necessity/sufficiency)**。抽掉"跨模型电路比对"这步,就只剩"RL benchmark 掉分少"的行为观察(=已有工作 Shenfeld 2025);正是这步把"少遗忘"从**行为层**落到了**计算结构层**,并能区分"SFT 是压缩成专家、RL 是均摊"这种机制差异(图3)。【原文 §3.2-§3.3, 图3】
+- **最巧的一步**:用 **DBM 在 base/SFT/RL 三个模型上各自独立发现电路,再做"跨模型电路对比"(faithfulness + mask shift \(Δm_h\) + necessity/sufficiency)**。抽掉"跨模型电路比对"这步,就只剩"RL benchmark 掉分少"的行为观察(=已有工作 Shenfeld 2025);正是这步把"少遗忘"从**行为层**落到了**计算结构层**,并能区分"SFT 是压缩成专家、RL 是均摊"这种机制差异(图3)。【原文 §3.2-§3.3, 图3】
 
 ══ 第二层:为什么做 ══
 
@@ -26,23 +26,23 @@
 ══ 第三层:怎么做 + 靠不靠谱 ══
 
 - **方法流水线(三阶段)**:
-  1. **Phase I — 复现行为差**:从 π_base 出发,先 completion-only 交叉熵得 π_SFT,再用 **Dr.GRPO**(group size 64、µ=2 两步 refine、**无显式 KL 惩罚**)在 π_SFT 基础上继续训得 π_RL(故对比"在 SFT 之后再用 RL 继续"的净效应)。任务 A=SciKnowEval 科学问答;任务 B=保持力套件。度量:下游准确率 + 输出 KL(Eq.1,越低漂移越小)。
-  2. **Phase II — 电路发现(DBM)**:在 head 级学一个掩码 m_h∈[0,1],在 base 激活与 counterfactual(source)激活间插值 ã_h=(1−m_h)a_base+m_h·a_source;退火把掩码逼成二值 → 得稀疏因果电路。化学 QA 构造 triplet(answer-key swap / molecule swap / task-type swap)。目标=提高 target 答案概率 + L1 稀疏惩罚(λΣm_h)。对 base/SFT/RL **各自独立**跑发现。
-  3. **Phase III — 跨模型电路比对**:① **circuit faithfulness**(Eq.3,电路恢复整模型行为的程度,≈1 为好);② **mask shift** Δm_h=m_h^M−m_h^base(Eq.4,哪些头被保留/放大/削弱);③ **necessity**(破坏某头时 log-prob 掉多少)与 **sufficiency**(只留该头能恢复多少行为);④ 定义 **vulnerable heads** = SFT 比 RL 退化更多的头(m_h^SFT < m_h^RL − δ)。
+  1. **Phase I — 复现行为差**:从 \(π_{base}\) 出发,先 completion-only 交叉熵得 \(π_{SFT}\),再用 **Dr.GRPO**(group size 64、\(µ=2\) 两步 refine、**无显式 KL 惩罚**)在 \(π_{SFT}\) 基础上继续训得 \(π_{RL}\)(故对比"在 SFT 之后再用 RL 继续"的净效应)。任务 \(A=\)SciKnowEval 科学问答;任务 B=保持力套件。度量:下游准确率 + 输出 KL(Eq.1,越低漂移越小)。
+  2. **Phase II — 电路发现(DBM)**:在 head 级学一个掩码 \(m_h∈[0,1]\),在 base 激活与 counterfactual(source)激活间插值 \(ã_h=(1−m_h)a_{base}+m_h·a_{source}\);退火把掩码逼成二值 → 得稀疏因果电路。化学 QA 构造 triplet(answer-key swap / molecule swap / task-type swap)。目标=提高 target 答案概率 + L1 稀疏惩罚 \((λΣm_h)\)。对 base/SFT/RL **各自独立**跑发现。
+  3. **Phase III — 跨模型电路比对**:① **circuit faithfulness**(Eq.3,电路恢复整模型行为的程度,\(≈1\) 为好);② **mask shift** \(Δm_h=m_h^M−m_h^{base}\)(Eq.4,哪些头被保留/放大/削弱);③ **necessity**(破坏某头时 log-prob 掉多少)与 **sufficiency**(只留该头能恢复多少行为);④ 定义 **vulnerable heads** = SFT 比 RL 退化更多的头(\(m_h^{SFT} < m_h^{RL} − δ\))。
 
 - **逐组件必要性**:
   - *DBM(差异二值掩码)*:整套分析的基石,提供 head 级因果电路。【推断:无掩码就无法做 head 级"保留/破坏"量化,但本文未做"换别的电路发现法"的消融】依据=§3.2 唯一方法。
   - *necessity/sufficiency 双指标*:用来区分"分布式贡献者 vs 关键瓶颈"——正是图3 区分 SFT"critical specialists" vs RL"分布式"的依据。✔有图证(图3)。
-  - *Δm_h vs necessity 相关性检验(图7)*:用来反驳"是否两种目标都在专挑重要头改"——结果两者都无正相关(SFT r=−0.125 弱负,RL r=0.022 近平),说明**不是按 base 重要性来重写电路**。✔有定量(图7)。
+  - *\(Δm_h\) vs necessity 相关性检验(图7)*:用来反驳"是否两种目标都在专挑重要头改"——结果两者都无正相关(SFT r=−0.125 弱负,RL r=0.022 近平),说明**不是按 base 重要性来重写电路**。✔有定量(图7)。
   - *epoch 级轨迹(图1)*:必要性在于揭示"RL 会回收电路"这一非单调现象(否则只看终点会漏掉)。✔有图证。
 
 - **关键机制直觉**:核心不是公式而是**"压缩 vs 均摊"的几何**。SFT 在强新任务压力(high New-Task-Score 区)下,把新行为**坍缩进一小撮高 necessity+高 sufficiency 的"关键专家头"**,等于覆写掉大块 base 电路 → 旧能力随之塌;RL 把适配**摊薄到很多头、没有任何单头变得不可或缺**,base 电路整体留存 → 旧能力保住。"RL 在 epoch2 保留率回升"则暗示 RL 能**巩固/修复**而非单调破坏。Faithfulness 三模型都>1(base 1.02 / SFT 1.04 / RL 1.12),说明抽出的子图都能复现整模型在 target 上的行为(分析可信)。【原文 §4.2-§4.4, 图3/图1】
 
 - **实验与证据**:
-  - 数据集/设置(表1):**唯一模型 Qwen2.5-3B-Instruct**;Task A=SciKnowEval;Task B=HellaSwag/TruthfulQA/MMLU/IFEval/WinoGrande/HumanEval;baseline=base / 标准 SFT / RL(Dr.GRPO)。
+  - 数据集/设置(表1):**唯一模型 Qwen2.5-3B-Instruct**;Task \(A=\)SciKnowEval;Task B=HellaSwag/TruthfulQA/MMLU/IFEval/WinoGrande/HumanEval;baseline=base / 标准 SFT / RL(Dr.GRPO)。
   - **支撑核心主张的关键实验/数字**:① 电路规模——base 297 头(占全部注意力头 51.6%),SFT 压缩到 ~265 头(46.0%),RL 保留 ~296 头(51.4%);base 电路 overlap:RL 保 ~68% vs SFT ~52%(图4/图8)。② 轨迹(图1):SFT 63.5%→59.0%(单调降),RL 69.8%→72.5%(回升),终点差 **13.5pp**;DCM(差异因果中介)RL 持续更高(15.8 vs 10.4 @ep1;10.6 vs 6.3 @ep2)。③ 性能-保持权衡(图2):low-NTS 区 SFT/RL 相当,**high-NTS 区 SFT 保留率骤降、RL 缓降**,峰值新任务性能处 RL 多保 15.8pp。
   - **最有说服力的一张**:图3 necessity-sufficiency landscape——直接给出"SFT=critical specialists 紧簇 / RL=贴合 base 的分布式"这一机制签名,把"压缩 vs 均摊"可视化。
-  - *baseline 公平性 / 设计特点*:RL 是**在 SFT 之上继续训**(非独立从 base 训 RL),所以结论是"SFT 后再上 RL 的增量保护",不是"RL vs SFT 从零的对照"。【推断:依据=§3 "refine πSFT with Dr.GRPO" → 比较口径需注意】
+  - *baseline 公平性 / 设计特点*:RL 是**在 SFT 之上继续训**(非独立从 base 训 RL),所以结论是"SFT 后再上 RL 的增量保护",不是"RL vs SFT 从零的对照"。【推断:依据=§3 "refine \(π_{SFT}\) with Dr.GRPO" → 比较口径需注意】
   - *"看着强但没回答核心"的隐患*:① **只 1 个模型(Qwen2.5-3B)、1 个任务族**,泛化性弱(作者 §6 自承);② 电路分析**只到注意力头**,未含 MLP/残差;③ DCM、faithfulness>1 等指标解读依赖该套 DBM 框架,换框架是否一致未验。【推断:依据=§6 limitations + §3.2 单一方法】
 
 - **假设与失效边界**:

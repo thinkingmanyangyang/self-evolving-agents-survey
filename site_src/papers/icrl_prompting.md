@@ -30,7 +30,7 @@
 ## ══ 第三层：怎么做 + 靠不靠谱 ══
 
 - **方法流水线**（§3，Algorithm 1，配 Figure 1，极简四件套）：
-  1. **LLM 作策略 π_θ**：给任务自然语言描述 s_task;每个 episode 开头,把"LLM 自己过去的尝试 + 对应 reward + s_task + 元指令 s_ICRL"拼成初始 prompt S0,LLM 生成回答。
+  1. **LLM 作策略 \(π_θ\)**：给任务自然语言描述 s_task;每个 episode 开头,把"LLM 自己过去的尝试 + 对应 reward + s_task + 元指令 s_ICRL"拼成初始 prompt S0,LLM 生成回答。
   2. **Reward 函数 r**：对回答给数值标量 reward,可**稀疏(仅终局)或稠密(逐步)**;可规则based、单独学习、或**用同一 LLM 自评**。关键:**唯一反馈就是这个标量**,且**显式在数前写 "Reward:" 标签**告诉 LLM 这是 reward。若 r 是 LLM 自评 → 无任何外部反馈,但因"评估比生成易"仍期望提升(作者假设:自评的上限低于外部反馈)。
   3. **经验记忆 buffer B**：存过去回答 + reward,**尽 context 窗口所能地全拼进去**;假设预训练 LLM 已有 ICRL 能力,能在前向过程里从这些经验"强化学习"。
   4. **ICRL 指令 s_ICRL(探索/利用调度)**：三种自然语言指令——*exploration*(要求给出与所有过去不同的回答)、*exploitation*(基于最高 reward 的过去回答给最佳解)、*explore-or-exploit*(让 LLM 自己决定)。两策略:**ICRL Preset**(偶数 episode 探索/奇数利用,交替) vs **ICRL Autonomous**(每轮都给 explore-or-exploit,LLM 自主选)。
@@ -40,14 +40,14 @@
   - **Exploration Only(只探索、无 reward)**:**显著差于完整法**——这条最关键:证明 ICRL 的提升**不是 Best-of-N 式"多探索再挑最好"**,而是**能真正生成比探索期更好的新回答**(genuine policy improvement)。
   - **Exploitation Only(只利用 + reward)**:与完整法同属最佳曲线之列 → 有 reward 的利用很强,框架对 prompt 设置鲁棒。
   - **No ICRL Instruction(去掉 s_ICRL)**:掉 → 元指令有用但非全部(去掉仍优于 Zero Rewards)。
-- **关键机制/直觉 + "RL 真在发生"的硬证据**：直觉=把"参数更新 θ_t→θ_{t+1}"换成"context C_t 增长",前向过程读 (动作,reward) 历史、识别"高 reward 模式",自回归地产出更优动作。**作者给了三组"这真是 RL"的证据**:
+- **关键机制/直觉 + "RL 真在发生"的硬证据**：直觉=把"参数更新 \(θ_t→θ_{t+1}\)"换成"context \(C_t\) 增长",前向过程读 (动作,reward) 历史、识别"高 reward 模式",自回归地产出更优动作。**作者给了三组"这真是 RL"的证据**:
   - **行为证据(duck test)**:reward 最大化 ✓、探索-利用权衡 ✓(Figure 2 成功率振荡=交替探索/利用)、context 增长→提升 ✓、context 变短→下降 ✓、无 reward→下降 ✓。
   - **学习 vs 搜索的判定实验(很巧)**:让模型给**训练截止后才发表的 arXiv 论文**写摘要(真值不在训练数据里)——Best-of-N/Reflexion **快速 plateau**,而 ICRL 在 200 轮内持续提升 ROUGE-Recall(Figure 17,App C)。**证明 ICRL 是从外部 reward 学到了训练数据没有的新信息,而非在参数知识里搜索**。
   - **机制证据(reward-aware attention heads)**:Qwen3-32B 上,对最后 32 层每个 head 算"注意力 vs reward"的 Pearson 相关——**2048 个 head 里 597 个(29.1%)显著相关**(远超随机 5%),有的 head 追高 reward 例、有的追低 reward 例(像 RL 既从成功也从失败学)。
 - **实验与证据**（§5）：
   - **Game of 24**(GPT-4.1,reward 由 GPT-4.1 自评 0–3 打分,**无人能拿到真值 r***):Table 1——ICRL Preset **90%** / Autonomous 84% vs Best-of-N 49%(还用了真值 r* 选最优)/ Self-Refine 47% / Reflexion 44% / Long-CoT 47% / CoT 6%。**碾压式**。
   - **创意写作**(GPT-4.1 自评 reward,Alpaca-Eval 2 LC 胜率):Table 2——ICRL vs Reflexion 59.48%、vs Long-CoT 78.36%、vs Self-Refine 86.32%、vs Best-of-N 93.81%。
-  - **ScienceWorld**(GPT-4.1-mini,环境真 reward,r=r*):Figure 2 右——足够迭代后 ICRL 超基线约 20%;App B 显示按**美元算力预算**衡量 ICRL 也比基线 scale 得好。
+  - **ScienceWorld**(GPT-4.1-mini,环境真 reward,\(r=r^*\)):Figure 2 右——足够迭代后 ICRL 超基线约 20%;App B 显示按**美元算力预算**衡量 ICRL 也比基线 scale 得好。
   - **跨模型 + 奥数**(Table 3/4):Qwen3-32B 在 8k/16k/32k context 上 ICRL 均超 Self-Refine/Reflexion(CW + AIME);Phi-4 / Llama-4 Maverick / Qwen3-32B(±thinking)在 HMMT/AIME/CW 上 ICRL 普遍超基线,**比 base 高 10–20 分**。
   - **baseline 公平吗**【推断】:相当公平甚至**对 baseline 偏宽**——Best-of-N 被允许用**真值 r***选最优(ICRL 拿不到),Self-Refine/Reflexion 的 prompt 被允许"长到 LLM 上限"、ScienceWorld 里还允许它们看当前 episode reward(ICRL 不行)。在这些放水条件下 ICRL 仍赢,说服力强。
   - **"看着强但没答核心问题"的隐患**【推断】:很少——本文核心主张是"RL 涌现",而行为证据 + 学习vs搜索实验 + attention 机制三管齐下,正面回答了核心问题。可质疑处:Game of 24 的 90% 部分得益于 GPT-4.1 长 context 能力 + 自评 reward 恰好对该任务有效,跨任务/弱模型上增益回落到 10–20 分。

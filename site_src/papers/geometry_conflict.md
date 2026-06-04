@@ -5,7 +5,7 @@
 
 ══ 第一层:一眼看懂 ══
 
-- 🟦 **TL;DR**:LLM 连续做多阶段 post-training(先训领域 A,再 B、C……)时,什么时候"新更新能迁移、不伤旧能力",什么时候"灾难性遗忘"?本文给出一个**几何解释**:把每个任务的参数更新 Δ_t = θ_t − θ_pre 看成一个矩阵,算它的**协方差几何** C = ΔᵀΔ(刻画这个更新主要在哪些子空间、用多大谱能量改模型);两个任务的"几何冲突"用**归一化 Bures-Wasserstein 距离**(协方差矩阵之间的最优传输距离)度量。**核心发现**:遗忘不是"更新走得远(范数大)"就发生,而是"**新任务的更新几何与'已经被前面更新塑造过的当前模型状态'的几何不兼容(state-relative geometry conflict 高)**"时才发生——这个 state-relative 几何冲突(|ρs|≈0.59,且在大模型上越强,14B 达 0.86)比 update norm(0.48)、子空间对齐 SAR、梯度冲突都更能预测遗忘。基于此提出 **GCWM(Geometry-Conflict Wasserstein Merging)**:一个**完全 data-free(合并时不需任何训练数据)**的连续 merging 方法——用各任务的协方差几何构造一个共享的 Wasserstein 度量(高斯 Wasserstein 重心 barycenter),把更新先"白化-在重心度量下对齐-再着色",并用**逐层几何冲突当门控 α**(冲突高的层施加更强的几何感知修正、冲突低的层弱修正),最后与普通 merge 线性混合。在 Qwen3 0.6B-14B 的领域持续 / 能力持续两种设置上,GCWM 在所有 data-free 基线里最强。【原文 摘要+§3+§4+§5】
+- 🟦 **TL;DR**:LLM 连续做多阶段 post-training(先训领域 A,再 B、C……)时,什么时候"新更新能迁移、不伤旧能力",什么时候"灾难性遗忘"?本文给出一个**几何解释**:把每个任务的参数更新 \(\Delta_t = \theta_t - \theta_{pre}\) 看成一个矩阵,算它的**协方差几何** \(C = \Delta^\top\Delta\)(刻画这个更新主要在哪些子空间、用多大谱能量改模型);两个任务的"几何冲突"用**归一化 Bures-Wasserstein 距离**(协方差矩阵之间的最优传输距离)度量。**核心发现**:遗忘不是"更新走得远(范数大)"就发生,而是"**新任务的更新几何与'已经被前面更新塑造过的当前模型状态'的几何不兼容(state-relative geometry conflict 高)**"时才发生——这个 state-relative 几何冲突(\(|\rho_s|\approx 0.59\),且在大模型上越强,14B 达 0.86)比 update norm(0.48)、子空间对齐 SAR、梯度冲突都更能预测遗忘。基于此提出 **GCWM(Geometry-Conflict Wasserstein Merging)**:一个**完全 data-free(合并时不需任何训练数据)**的连续 merging 方法——用各任务的协方差几何构造一个共享的 Wasserstein 度量(高斯 Wasserstein 重心 barycenter),把更新先"白化-在重心度量下对齐-再着色",并用**逐层几何冲突当门控 α**(冲突高的层施加更强的几何感知修正、冲突低的层弱修正),最后与普通 merge 线性混合。在 Qwen3 0.6B-14B 的领域持续 / 能力持续两种设置上,GCWM 在所有 data-free 基线里最强。【原文 摘要+§3+§4+§5】
 
 - **最巧的一步**:**把"参考系"从"任务对之间"换成"任务 vs 演化中的模型状态(state-relative)"**——抽掉这个视角(只看任务两两的 pairwise 冲突,Fig 3),几何冲突几乎预测不了遗忘(GC-forget 在 8B/14B 仅 0.12/0.02);一旦换成"当前更新 vs 当前累积状态"的 state/global gap,相关性立刻跳到 0.68/0.70(Seq.SFT)且随规模增强。这是全文的灵魂:**遗忘是"状态相对的更新整合失败",不是绝对漂移**。GCWM 的门控信号正是基于这个 state-relative 冲突。【原文 §3.3, Fig 1/2】
 
@@ -27,11 +27,11 @@
 ══ 第三层:怎么做 + 靠不靠谱 ══
 
 - **方法流水线(GCWM,data-free 连续 merging,对应 §4 Eq.1-11)**:
-  1. **任务几何 + 投影到共享基**:对每个活跃更新 Δ_i 的每个线性层 ℓ,算 C^(ℓ)_i = ΔᵀΔ + λI(谱能量+主子空间,λI 保数值稳定);对所有活跃更新做截断 SVD 取右奇异方向,正交化拼成共享基 Q^(ℓ);投影几何 B^(ℓ)_i = Qᵀ C_i Q。【原文 §4.1 Eq.1-3】
-  2. **逐层几何冲突 → 门控**:两两投影几何用归一化 Bures-Wasserstein 距离算 γ_ij(Eq.4),加权聚合成层级冲突 g^(ℓ)=Σ w_ij γ_ij(Eq.5);过 sigmoid 门 α^(ℓ)=α_min+(α_max−α_min)·σ(κ(g−τ))(Eq.6,τ 是冲突阈值、κ 控门陡度)。**冲突高 → α 大 → 几何修正强**。【原文 §4.1 Eq.4-6】
-  3. **共享 Wasserstein 度量 + 门控合并**:用高斯 Wasserstein 重心 B̄^(ℓ)=argmin Σ ω_i d²_B(B, B_i)(Eq.7)作为局部对齐度量;把投影更新**白化**(乘 B̄^{-1/2})→ 用基算子 M 合并 → **着色**(乘 B̄^{1/2})回去得 Δ_geo(Eq.8-9);**基算子 M 实例化为 weighted WUDI**(一种已有的 merge 算子);最后与未门控的普通 merge 线性混合 Δ_merge = α·Δ_geo + (1−α)·Δ_plain(Eq.10)。【原文 §4.2 Eq.7-10, "We instantiate M with weighted WUDI [55]"】
-  4. **增量连续更新**:步 t 按 memory policy 选 active set A_t(**history-aware 策略**保留历史任务更新,或 **anchor-based 策略**把当前任务对着"上一次合并状态"合并);只施加相对上一次合并状态的**增量** Δ_inc,t = Δ_merge,t − Δ_merge,t−1(Eq.11),θ_t = θ_t−1 + η_t·Δ_inc,t。【原文 §4.3 Eq.11 + 附录】
-  5. **理论(§4.4)**:Theorem 1——GCWM 相对 plain merge 在旧任务 u 上的额外损失 ≤ η_t·Σ c·g^(ℓ)(几何冲突项)+ (η²/2)·Σ d·‖位移‖²(度量位移项),即**相对损失被"几何冲突 × 门控位移"上界控制**;Proposition 1——门把高冲突层的修正放大、低冲突层缩小(g≤τ⇒α≤中点,g≥τ⇒α≥中点)。【原文 §4.4 Theorem1/Prop1,证明在附录 C/D】
+  1. **任务几何 + 投影到共享基**:对每个活跃更新 \(\Delta_i\) 的每个线性层 ℓ,算 \(C^{(\ell)}_i = \Delta^\top\Delta + \lambda I\)(谱能量+主子空间,\(\lambda I\) 保数值稳定);对所有活跃更新做截断 SVD 取右奇异方向,正交化拼成共享基 \(Q^{(\ell)}\);投影几何 \(B^{(\ell)}_i = Q^\top C_i Q\)。【原文 §4.1 Eq.1-3】
+  2. **逐层几何冲突 → 门控**:两两投影几何用归一化 Bures-Wasserstein 距离算 \(\gamma_{ij}\)(Eq.4),加权聚合成层级冲突 \(g^{(\ell)}=\sum w_{ij} \gamma_{ij}\)(Eq.5);过 sigmoid 门 \(\alpha^{(\ell)}=\alpha_{min}+(\alpha_{max}-\alpha_{min})\cdot\sigma(\kappa(g-\tau))\)(Eq.6,τ 是冲突阈值、κ 控门陡度)。**冲突高 → α 大 → 几何修正强**。【原文 §4.1 Eq.4-6】
+  3. **共享 Wasserstein 度量 + 门控合并**:用高斯 Wasserstein 重心 \(\bar{B}^{(\ell)}=\arg\min \sum \omega_i d^2_B(B, B_i)\)(Eq.7)作为局部对齐度量;把投影更新**白化**(乘 \(\bar{B}^{-1/2}\))→ 用基算子 M 合并 → **着色**(乘 \(\bar{B}^{1/2}\))回去得 \(\Delta_{geo}\)(Eq.8-9);**基算子 M 实例化为 weighted WUDI**(一种已有的 merge 算子);最后与未门控的普通 merge 线性混合 \(\Delta_{merge} = \alpha\cdot\Delta_{geo} + (1-\alpha)\cdot\Delta_{plain}\)(Eq.10)。【原文 §4.2 Eq.7-10, "We instantiate M with weighted WUDI [55]"】
+  4. **增量连续更新**:步 t 按 memory policy 选 active set \(A_t\)(**history-aware 策略**保留历史任务更新,或 **anchor-based 策略**把当前任务对着"上一次合并状态"合并);只施加相对上一次合并状态的**增量** \(\Delta_{inc,t} = \Delta_{merge,t} - \Delta_{merge,t-1}\)(Eq.11),\(\theta_t = \theta_{t-1} + \eta_t\cdot\Delta_{inc,t}\)。【原文 §4.3 Eq.11 + 附录】
+  5. **理论(§4.4)**:Theorem 1——GCWM 相对 plain merge 在旧任务 u 上的额外损失 \(\leq \eta_t\cdot\sum c\cdot g^{(\ell)}\)(几何冲突项)\(+ (\eta^2/2)\cdot\sum d\cdot\|位移\|^2\)(度量位移项),即**相对损失被"几何冲突 × 门控位移"上界控制**;Proposition 1——门把高冲突层的修正放大、低冲突层缩小(\(g\leq\tau\Rightarrow\alpha\leq\) 中点,\(g\geq\tau\Rightarrow\alpha\geq\) 中点)。【原文 §4.4 Theorem1/Prop1,证明在附录 C/D】
 
 - **逐组件必要性(消融 Fig 4,Qwen3-0.6B 域持续)**:
   - **Full GCWM** overall 27.1% > **w/o gate** 26.7% > **w/o Wasserstein barycenter**(换成均值协方差度量)26.8%。
@@ -48,11 +48,11 @@
   - **关键发现②(能力持续 Table 2)**:1.7B 上 GCWM data-free 平均 62.6(注:正文表头列 1.7B=58.3 14B=74.3 为 Avg 列对齐;文中称 1.7B avg 62.6,超 OPCM 56.8 +5.78、六个 benchmark 全领先)〔1.7B 数值表头与正文叙述有 58.3/62.6 两处,以正文 §5.3 "62.6,+5.78" 为准,**表格排版疑似错位,待核**〕;14B data-free 平均最强 74.3 vs OPCM 72.9。**FOREVER(回放)有时更高**,但作者明确它是回放参考线、主对比在 data-free 内。
   - **关键发现③(vs 非连续 merging,附录 G.4)**:GCWM 各规模 ≥ 最强非连续 merge(多为 TIES);1.7B +3.24(5/6 wins)、4B +5.71(6/6)、8B +2.6;**DARE 在此设置极不稳**(0.6B 崩到 15.1%、8B 32.2%)。
   - **baseline 公平性**:同骨干、同评测协议、5 次平均、区分 data-free 与回放/正则参考线,较严谨。
-  - **看着强但需警惕**:① **绝对增益温和**(域持续 overall +0.7~1.6pp,0.6B 消融仅 +0.3),"最强 data-free"成立但提升幅度不大;② 与**回放法 FOREVER 常打不过**(承认了,但削弱"实用性"卖点——若允许少量回放,GCWM 未必最优);③ Sec 3 的相关性分析**在小模型(0.6B)上 state-relative 信号很弱甚至反号**(ρ_G=−0.06),"随规模增强"意味着小模型上该解释/方法都打折。【原文 Table 1/2, Fig 1, 附录 G.4】
+  - **看着强但需警惕**:① **绝对增益温和**(域持续 overall +0.7~1.6pp,0.6B 消融仅 +0.3),"最强 data-free"成立但提升幅度不大;② 与**回放法 FOREVER 常打不过**(承认了,但削弱"实用性"卖点——若允许少量回放,GCWM 未必最优);③ Sec 3 的相关性分析**在小模型(0.6B)上 state-relative 信号很弱甚至反号**(\(\rho_G=-0.06\)),"随规模增强"意味着小模型上该解释/方法都打折。【原文 Table 1/2, Fig 1, 附录 G.4】
 
 - **假设与失效边界**:
-  - 【推断·关键】**state-relative 几何冲突的解释力强依赖模型规模**——0.6B 上 |ρs| 仅 0.16、ρ_G=−0.06,1.7B 起才显著(0.81/0.68/...)。小模型上"几何冲突→遗忘"的因果链弱。依据=§3.1 Fig 1(b) 的 scale breakdown。
-  - 【推断】**所有任务更新须相对同一 θ_pre、同架构**(Δ_i=θ_i−θ_pre,SVD 共享基);异构骨干不适用。依据=§4 定义。
+  - 【推断·关键】**state-relative 几何冲突的解释力强依赖模型规模**——0.6B 上 \(|\rho_s|\) 仅 0.16、\(\rho_G=-0.06\),1.7B 起才显著(0.81/0.68/...)。小模型上"几何冲突→遗忘"的因果链弱。依据=§3.1 Fig 1(b) 的 scale breakdown。
+  - 【推断】**所有任务更新须相对同一 \(\theta_{pre}\)、同架构**(\(\Delta_i=\theta_i-\theta_{pre}\),SVD 共享基);异构骨干不适用。依据=§4 定义。
   - 【原文/推断】理论 Theorem 1 在**局部光滑 + 投影几何充分 + 层级度量曲率**假设下成立(附录 C);这些是局部近似,大步长/强非线性下界可能松。依据=§4.4 + 附录 C 假设。
   - 【推断·成本】**merge-time 是实际瓶颈**(作者自陈 Remark 3):Qwen3-8B 平均**每合并步 40.5±19.7 分钟、峰值 7.8±3.4 GB GPU**(附录 I/Fig21/Table32),开销主要在 SVD/Wasserstein 重心/矩阵平方根/逆平方根。**这与 agent_dice "1 分钟级" 形成鲜明对比**——GCWM 几何对齐贵得多。依据=附录 I 原文。
   - 【推断】memory policy 选 history-aware 还是 anchor-based、active set 大小如何影响结果,主文未系统比较。依据=§4.3 只列两种策略未消融。
@@ -68,7 +68,7 @@
 
 | 学什么信号 | 改什么 | 何时改 | 免梯度? | 记忆-技能生命周期 | 防遗忘机制 |
 |---|---|---|---|---|---|
-| **无新训练信号**——用各任务**已训好的参数更新 Δ_i 的协方差几何 C=ΔᵀΔ**;核心信号="**state-relative 几何冲突**"= 新更新几何 vs 演化中模型状态几何的 Bures-Wasserstein 距离(自动算,不需数据) | **backbone 参数 θ(逐层线性层,full-space 正则变换)**——通过几何对齐(白化-着色)+ 门控混合重写权重;**不改 prompt/记忆/logits、不加模块** | **离线/增量连续**(每个 continual 步合并一次,只施加相对上次合并的增量 Δ_inc;**非在线 per-step 梯度更新**) | **是(合并阶段 data-free、免梯度)**——只做 SVD / Wasserstein 重心 / 矩阵平方根 / 门控混合,无反向传播;各任务先各自 SFT(那步有梯度,合并本身零梯度、零数据) | 无外部记忆/技能库;"知识"=各任务更新 Δ_i;**memory policy** 决定 active set(history-aware 保留历史更新 / anchor-based 对着上次合并状态)→ 合并写回 θ;无检索/无显式遗忘淘汰/无跨 agent 共享 | **merging + 几何冲突门控(几何对齐式巩固)**:① **Wasserstein 重心共享度量 + 白化-着色** 把不同任务更新对齐到同一几何坐标系再合并(防几何失配破坏);② **逐层几何冲突门控 α**(冲突高的层强几何修正、低的层用 plain merge);理论上**相对损失被几何冲突上界控制**。**无回放(data-free)/无 KL/无参数隔离**,靠 Bures-Wasserstein 几何 |
+| **无新训练信号**——用各任务**已训好的参数更新 \(\Delta_i\) 的协方差几何 \(C=\Delta^\top\Delta\)**;核心信号="**state-relative 几何冲突**"= 新更新几何 vs 演化中模型状态几何的 Bures-Wasserstein 距离(自动算,不需数据) | **backbone 参数 θ(逐层线性层,full-space 正则变换)**——通过几何对齐(白化-着色)+ 门控混合重写权重;**不改 prompt/记忆/logits、不加模块** | **离线/增量连续**(每个 continual 步合并一次,只施加相对上次合并的增量 \(\Delta_{inc}\);**非在线 per-step 梯度更新**) | **是(合并阶段 data-free、免梯度)**——只做 SVD / Wasserstein 重心 / 矩阵平方根 / 门控混合,无反向传播;各任务先各自 SFT(那步有梯度,合并本身零梯度、零数据) | 无外部记忆/技能库;"知识"=各任务更新 \(\Delta_i\);**memory policy** 决定 active set(history-aware 保留历史更新 / anchor-based 对着上次合并状态)→ 合并写回 θ;无检索/无显式遗忘淘汰/无跨 agent 共享 | **merging + 几何冲突门控(几何对齐式巩固)**:① **Wasserstein 重心共享度量 + 白化-着色** 把不同任务更新对齐到同一几何坐标系再合并(防几何失配破坏);② **逐层几何冲突门控 α**(冲突高的层强几何修正、低的层用 plain merge);理论上**相对损失被几何冲突上界控制**。**无回放(data-free)/无 KL/无参数隔离**,靠 Bures-Wasserstein 几何 |
 
 - ⑦ **开源代码 + 框架/harness**:**已开源** https://github.com/wyy-code/GCWM(首页 + 摘要明确给出)〔本次未 `git ls-remote`/clone 核验,完整度待核〕。**基 merge 算子 = weighted WUDI(已有方法)**;几何模块自研(Bures-Wasserstein 距离 / 高斯 Wasserstein 重心 / 截断 SVD / 白化-着色)。**不使用 RLHF 框架**(本方法无 RL、无训练数据,纯参数空间 merging)。各任务 SFT 阶段框架原文未明示(只说遵循 Qwen3 评测协议)。【原文 §4.2, §5.1】
 
@@ -88,7 +88,7 @@
 - 🖼 **关键图 top-2**:
 
   ![图1-State-relative 几何追踪遗忘(核心发现)](../figures/geometry_conflict_fig1.png)
-  这是**原文 Figure 1(+同页 Figure 2)**(全文灵魂的实证图):Panel (a) 展示 Seq.SFT 下各规模(0.6B-14B)的 state/loss 动态——1.7B 起 state gap 与 retention loss 同步增长(ρ_G 0.81/0.68/0.72/0.65),0.6B 几乎不相关(−0.06);Panel (b) 用 |ρs| 条形图直接对比四种信号(update norm / active conflict / state gap / global gap)对遗忘的预测力,global gap 从 0.6B 的 0.16 涨到 14B 的 0.86,全面压过 update norm。选它因为这一图**就是论文核心主张"遗忘=state-relative 几何冲突、且随规模增强"的直接证据**,也是 GCWM 门控信号的合法性来源。
+  这是**原文 Figure 1(+同页 Figure 2)**(全文灵魂的实证图):Panel (a) 展示 Seq.SFT 下各规模(0.6B-14B)的 state/loss 动态——1.7B 起 state gap 与 retention loss 同步增长(\(\rho_G\) 0.81/0.68/0.72/0.65),0.6B 几乎不相关(−0.06);Panel (b) 用 \(|\rho_s|\) 条形图直接对比四种信号(update norm / active conflict / state gap / global gap)对遗忘的预测力,global gap 从 0.6B 的 0.16 涨到 14B 的 0.86,全面压过 update norm。选它因为这一图**就是论文核心主张"遗忘=state-relative 几何冲突、且随规模增强"的直接证据**,也是 GCWM 门控信号的合法性来源。
 
   ![图4-GCWM 消融(gate / Wasserstein 重心)+ 能力持续 Table2](../figures/geometry_conflict_fig4.png)
   这是**原文第 9 页**:**Figure 4** GCWM 在 MMLU-Pro(0.6B)的消融——Full GCWM 27.1% vs w/o gate 26.7% vs w/o Wasserstein barycenter 26.8%,并按域拆出"去 gate 伤 econ/math/psych、换度量伤 bus/law/psych"的 trade-off;同页 **Table 2** 能力持续结果显示 GCWM 是最强 data-free 方法(但 FOREVER 回放有时更高)。选它因为同时支撑"门控与 Wasserstein 度量两组件都有用(但增益温和、是 trade-off)"和"data-free SOTA 但非碾压回放"两个对祛魅至关重要的事实。

@@ -4,7 +4,7 @@
 
 ══ 第一层：一眼看懂 [light] ══
 
-- 🟦 **TL;DR**：只有二值奖励(对/错)、且**没有外部老师、没有高质量示范**,怎么把稀疏奖励变稠密监督?SD-ZERO 让**同一个模型演两角**:**Generator**(生成初答)+**Reviser**(看着自己的初答和它的二值奖励,产出改进答)。两阶段:**Phase1 SRT(自修订训练)**——采初答→验对错→提示模型自修订(对:"Let me rephrase";错:"Wait...let me start over"),只留"改对了"的轨迹微调(6K 条),同时训 revision 与 generation 两损失;**Phase2 自蒸馏**——冻结 SRT 当 teacher(reviser),student(generator)出 on-policy 答,teacher 据该答+奖励产 token 分布,student 用 KL 去匹配⇒把"会修订"内化进"直接生成"。Qwen3-4B/Olmo-3-7B 提升 ≥10% over base、超 RFT/GRPO/SDFT(同题集同样本预算)。
+- 🟦 **TL;DR**：只有二值奖励(对/错)、且**没有外部老师、没有高质量示范**,怎么把稀疏奖励变稠密监督?SD-ZERO 让**同一个模型演两角**:**Generator**(生成初答)+**Reviser**(看着自己的初答和它的二值奖励,产出改进答)。两阶段:**Phase1 SRT(自修订训练)**——采初答→验对错→提示模型自修订(对:"Let me rephrase";错:"Wait...let me start over"),只留"改对了"的轨迹微调(6K 条),同时训 revision 与 generation 两损失;**Phase2 自蒸馏**——冻结 SRT 当 teacher(reviser),student(generator)出 on-policy 答,teacher 据该答+奖励产 token 分布,student 用 KL 去匹配⇒把"会修订"内化进"直接生成"。Qwen3-4B/Olmo-3-7B 提升 \(≥10\%\) over base、超 RFT/GRPO/SDFT(同题集同样本预算)。
 
 - **最巧的一步**：抽掉 **Phase2 自蒸馏**只剩 SRT,模型会**答得极长**(显式自修订行为冗长)且每题要采多个答构造修订轨迹(不省样本)——Phase2 把修订能力蒸回生成器,**响应长度砍约 2×**、每题只需 1 个答(样本高效)、性能再涨。故 Phase2 是"训练+推理效率"的命门;而"reviser 能条件于自己的错答"是区别于 SDFT/OPSD(需高质量示范)的核心 Δ。
 
@@ -31,21 +31,21 @@
 ══ 第三层：怎么做 + 靠不靠谱 ══
 
 - **方法流水线**(图2 + Alg.1,数据集切成 N1/N2 两不相交子集)：
-  ① **Phase1 SRT(自修订训练,§2.1,N1 子集)**：对每题 x 采多个初答 y_init~πθ → 二值验证 r∈{0,1} → 构造修订 prompt 含控制短语 P_r(r=1→"Let me rephrase";r=0→"Wait, this response is not correct, let me start over")→ 同模型产修订 y_revised~πθ(·|x,y_init,P_r) → **只留改对的轨迹** 成 D_REVISION。训练**两损失**:**L_revision**(式1,条件于 x,y_init,P_r 产 y_revised,学自修订)+ **L_generation**(式2,只条件于 x 产完整正确答,保生成能力),L_SRT=两者和(式3)。
-  ② **Phase2 Self-Distillation(§2.2,N2 子集)**：student θ:=θ_SRT 出 on-policy 答 πθ(·|x);**teacher 冻结在 θ_SRT**,条件于 generator 的答+二值奖励产 token 分布 π_θSRT(·|x,y,P_r);student 最小化 **KL(πθ(·|x,y<t) ‖ π_θSRT(·|x,y,P_r,y<t))**(式4)。把修订行为蒸回直接生成。
-  ③ **iterative self-evolution(§3.4)**：Phase2 也提升模型修订能力,故**一个 epoch 后把 teacher 同步为更新后的 student**,继续训练→再涨≥3%(图5)。
+  ① **Phase1 SRT(自修订训练,§2.1,N1 子集)**：对每题 \(x\) 采多个初答 \(y_{init}∼π_θ\) → 二值验证 \(r∈\{0,1\}\) → 构造修订 prompt 含控制短语 \(P_r\)(\(r=1\)→"Let me rephrase";\(r=0\)→"Wait, this response is not correct, let me start over")→ 同模型产修订 \(y_{revised}∼π_θ(·|x,y_{init},P_r)\) → **只留改对的轨迹** 成 D_REVISION。训练**两损失**:**\(L_{revision}\)**(式1,条件于 \(x,y_{init},P_r\) 产 \(y_{revised}\),学自修订)+ **\(L_{generation}\)**(式2,只条件于 \(x\) 产完整正确答,保生成能力),\(L_{SRT}=\)两者和(式3)。
+  ② **Phase2 Self-Distillation(§2.2,N2 子集)**：student \(θ:=θ_{SRT}\) 出 on-policy 答 \(π_θ(·|x)\);**teacher 冻结在 \(θ_{SRT}\)**,条件于 generator 的答+二值奖励产 token 分布 \(π_{θ_{SRT}}(·|x,y,P_r)\);student 最小化 **\(KL(π_θ(·|x,y_{<t}) ‖ π_{θ_{SRT}}(·|x,y,P_r,y_{<t}))\)**(式4)。把修订行为蒸回直接生成。
+  ③ **iterative self-evolution(§3.4)**：Phase2 也提升模型修订能力,故**一个 epoch 后把 teacher 同步为更新后的 student**,继续训练→再涨 \(≥3\%\)(图5)。
   输出:把自修订内化进直接生成、token 高效的策略。
 
 - **逐组件必要性**(消融充分,§4.3)：
-  - **SRT 两损失(L_revision + L_generation)**：**有消融**(表11)。只 L_generation→保生成但弱修订;只 L_revision→提修订但几乎不提生成。**两者互补缺一不可**(L_revision 引出自修订、L_generation 把它转成更强生成)。
+  - **SRT 两损失(\(L_{revision}\) + \(L_{generation}\))**：**有消融**(表11)。只 \(L_{generation}\)→保生成但弱修订;只 \(L_{revision}\)→提修订但几乎不提生成。**两者互补缺一不可**(\(L_{revision}\) 引出自修订、\(L_{generation}\) 把它转成更强生成)。
   - **Phase1 SRT(对 Phase2 的必要性)**：**有消融**(表12)。直接对 base 做 Phase2(无 SRT)→仅边际提升、不提修订能力。**SRT 是 SD-ZERO 生效的前提**。
   - **Phase2 Self-Distillation**：**有对比**(表1)。在 SRT 基础上再 +2.7%(Qwen)/+1.2%(Olmo),**响应砍 2×**(图3/6),且**每题只需1答(样本高效)**(SRT 要采多答构造修订轨迹)。
   - **correctness 过滤修订轨迹**：附录G 证明重要(只留改对的)。
   - **数据分配(SRT vs Self-Distillation)**：**有消融**(表13)。给 SRT 更多数据只略提 SRT 模型、不提最终性能;**给 Self-Distillation 更多数据最好**(SRT 解锁能力后,Phase2 更有效地用数据蒸成强生成)。
-  - **teacher 同步**:**有对比**(图5),同步后再涨≥3% 无饱和迹象。
+  - **teacher 同步**:**有对比**(图5),同步后再涨 \(≥3\%\) 无饱和迹象。
 
 - **关键机制/公式直觉**：
-  - **outcome-conditioned 控制短语(P_r)**：直觉是"用一句话告诉模型该干嘛"——对了就"换个说法"(rephrase,常更短)、错了就"等等不对,重来"(start over,critique+regenerate)。这把二值奖励变成可执行的修订指令。
+  - **outcome-conditioned 控制短语(\(P_r\))**：直觉是"用一句话告诉模型该干嘛"——对了就"换个说法"(rephrase,常更短)、错了就"等等不对,重来"(start over,critique+regenerate)。这把二值奖励变成可执行的修订指令。
   - **Phase2 KL 蒸馏(式4)= 二值奖励→稠密 token 自监督**：直觉是"reviser 看过(答+奖励)后的 next-token 分布,就是给 generator 的稠密目标"。**token-level self-localization(§4.1,图4)**:reviser 虽只收二值 r,但其 KL 信号**集中在少数关键 token**——错答(r=0)KL 质量集中在出错 token(faulty 论证大正 KL、正确替代大负 KL),对答(r=1)KL 平坦(主要保留)。即**把标量变成双向 token 级信号:既定位错误又指向更优替代**。
   - **内化(internalization,§4.2,图6)**:SRT 阶段响应变长、显式 revision 关键词("Wait/start over")变多;Phase2 阶段两者都降但准确率继续升——模型从"显式回溯"转向"内化的 pitfall-aware 主动推理"(图6 例:SD-ZERO 模型不回溯、直接预判陷阱导向正确答)。
   - **iterative self-evolution**:teacher 也在变强,定期同步=滚动 bootstrapping,只需初答+二值奖励在 teacher 上下文里。
@@ -73,12 +73,12 @@
 
 | 轴 | 内容 |
 |---|---|
-| 学什么信号 | **二值奖励 r∈{0,1}(答案对/错验证器)** → 经 reviser 条件化(错答+奖励+控制短语)转成 token 级稠密自监督(双向:定位错误+指向替代);**不假设有 gold 解/外部老师/高质量示范** |
-| 改什么 | **参数**(单模型权重;Phase1 SFT 两损失 L_revision+L_generation + Phase2 on-policy KL 蒸馏) |
+| 学什么信号 | **二值奖励 \(r∈\{0,1\}\)(答案对/错验证器)** → 经 reviser 条件化(错答+奖励+控制短语)转成 token 级稠密自监督(双向:定位错误+指向替代);**不假设有 gold 解/外部老师/高质量示范** |
+| 改什么 | **参数**(单模型权重;Phase1 SFT 两损失 \(L_{revision}+L_{generation}\) + Phase2 on-policy KL 蒸馏) |
 | 何时改 | **离线两阶段**(Phase1 在 N1 子集 SFT、Phase2 在 N2 子集 on-policy 自蒸馏);支持**多轮 teacher 同步**做迭代自进化(图5) |
-| 免梯度? | **否**——两阶段都梯度更新;teacher 在单轮内冻结(θ_SRT),轮间可同步 |
+| 免梯度? | **否**——两阶段都梯度更新;teacher 在单轮内冻结(\(θ_{SRT}\)),轮间可同步 |
 | 记忆-技能生命周期 | **无外部记忆**;"技能"=被内化进权重的自修订能力;teacher/student 是同模型两角色,定期同步=技能滚动复用(iterative self-evolution) |
-| 防遗忘机制 | **KL 投影 + 隔离 + on-policy 性质**:Phase2 是向冻结 reviser 的 KL;Phase1 的 L_generation 项专门**保留原生成能力**(防只会修订不会生成);跨任务遗忘未专门讨论(但 on-policy 蒸馏一般遗忘较少) |
+| 防遗忘机制 | **KL 投影 + 隔离 + on-policy 性质**:Phase2 是向冻结 reviser 的 KL;Phase1 的 \(L_{generation}\) 项专门**保留原生成能力**(防只会修订不会生成);跨任务遗忘未专门讨论(但 on-policy 蒸馏一般遗忘较少) |
 
 - ⑦ **开源代码 + 框架/harness**：**原文未直接给 GitHub 链接**(Preprint under review;附录C 给训练细节)。**框架：Phase1 标准 SFT(两损失);Phase2 on-policy KL 自蒸馏**;GRPO 基线用 **DAPO 变体**(Yu 2025)。模型 Qwen3-4B-Instruct/Olmo-3-7B-Instruct。**判定:两阶段 SFT+自蒸馏自研 pipeline,公开代码待核。**【原文 §3.1 + 附录C】
 - 💰 **资源/成本与可扩展性**：**样本高效是核心卖点**——SRT 仅 6K 自修订轨迹(超在 15K 上训的基线);**Phase2 每题只需 1 个回答**(vs GRPO 需一组采样、SRT 需多答构造修订轨迹);**compute-equalized 对比下 SD-ZERO 性价比最高**(best performance per model generation)。推理时响应砍 2×(图3)进一步省。base 4B-7B,成本中等偏低。【原文 §3.3 + 附录C.2】

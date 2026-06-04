@@ -22,7 +22,7 @@
   - **梯度 RL（PPO/GRPO、Search-R1、ToolRL、WebRL）**：贵 + 静态模型，难抗分布漂移。
   - **训练自由的推理增强 / 外部记忆（MemGPT、Generative Agents、Voyager、Reflexion、A-mem）**：都是"检索文本→放进 context 做 ICL"。
   - **JitRL 的差异**：【原文】"不是检索文本做 ICL，而是把记忆当成一个**非参数策略分布**，直接在 logits 上做 soft update"——在不更新参数的前提下实现策略改进。
-- **动机链**：现状（agent 不会在线学）→ RL 能学但贵+遗忘、ICL 便宜但弱+context 受限 → **能否用 RL 的形式（普适、reward 驱动）但避免梯度（省钱、不遗忘）?** → 把"策略改进"重写成"对冻结先验 π_θ 的后验调制"，用检索估的优势在 logit 空间做闭式更新（§1 末、§4）。【推断】"为什么不用更简单的现成做法"——更简单的就是把经验塞 prompt（ICL），但 Table 8 消融证明它更弱，逻辑链因此闭合。
+- **动机链**：现状（agent 不会在线学）→ RL 能学但贵+遗忘、ICL 便宜但弱+context 受限 → **能否用 RL 的形式（普适、reward 驱动）但避免梯度（省钱、不遗忘）?** → 把"策略改进"重写成"对冻结先验 \(π_θ\) 的后验调制"，用检索估的优势在 logit 空间做闭式更新（§1 末、§4）。【推断】"为什么不用更简单的现成做法"——更简单的就是把经验塞 prompt（ICL），但 Table 8 消融证明它更弱，逻辑链因此闭合。
 - **与最近邻工作的 Δ**：
   - **vs AWM（Agent Workflow Memory，ICML'25）**：AWM 把成功轨迹抽成"可复用 workflow"存起来、再注入 prompt；JitRL 不抽 workflow，而是把回报统计直接转成 logit 偏置——**关键差异：改的是输出分布而非输入 context**。【推断】这让 JitRL 不依赖 LLM "读懂并遵守" workflow 文本。
   - **vs EvoTest（同组，作为 baseline）**：EvoTest 演化式地重写 prompt + 调超参 + 更新 memory，是"配置层面"的 test-time 学习；JitRL 是"输出分布层面"的最小、可证明干预。【推断依据：§5.1 把 EvoTest 列为 training-free baseline，JitRL 在 Table1/3/4 全面超过它】。
@@ -34,16 +34,16 @@
 
 - **方法流水线**（§4，配 Figure 2，三大模块 + 一个循环）：
   1. **经验记忆构建（离线/回合末写入）**：每个 episode 结束，**LLM-Evaluator** 给整条轨迹打**反思式 step-wise reward** \(E: τ→{r_t}\)（缓解长程信用分配）；聚合成折扣回报 \(G_t=Σ_{u≥t} γ^{u−t} r_u\)（Eq.3）。原始状态（完整 HTML DOM / 冗长游戏文本）太噪，**抽象成紧凑结构化状态 s_t**（原则：功能等价的状态映射到相似表示，细节在 Appendix F）。每个转移以三元组 \((s_t, a_t, G_t)\) 存入非参数记忆 M（隐式表示环境经验分布）。
-  2. **test-time 价值估计（在线 per-step）**：把当前观测抽成结构化 state s，检索 top-k 相似邻居 N(s)。状态值 \(V̂(s)=mean_{i∈N(s)} G_i\)（Eq.4）；动作值分两种：**已见动作** \(Q̂(s,a)=mean over N(s,a) G_j\)（Eq.5）；**未见动作** 走"乐观面对不确定性"——以概率 λ 给乐观值 \(Q̂=V̂(s)+α/|N(s)|\)（Eq.6，邻居越少 bonus 越大→鼓励探索，经验累积后 bonus 自然衰减转向利用），以 1−λ 给 0（防过度探索）。优势 \(Â(s,a)=Q̂(s,a)−V̂(s)\)（Eq.7）。
+  2. **test-time 价值估计（在线 per-step）**：把当前观测抽成结构化 state s，检索 top-k 相似邻居 N(s)。状态值 \(V̂(s)=mean_{i∈N(s)} G_i\)（Eq.4）；动作值分两种：**已见动作** \(Q̂(s,a)=mean over N(s,a) G_j\)（Eq.5）；**未见动作** 走"乐观面对不确定性"——以概率 \(λ\) 给乐观值 \(Q̂=V̂(s)+α/|N(s)|\)（Eq.6，邻居越少 bonus 越大→鼓励探索，经验累积后 bonus 自然衰减转向利用），以 \(1−λ\) 给 0（防过度探索）。优势 \(Â(s,a)=Q̂(s,a)−V̂(s)\)（Eq.7）。
   3. **策略更新（在线 per-step，零梯度）**：解 \(π*=argmax E_{a∼π′}[Â] − (1/β)KL(π′‖π_θ)\)（Eq.8）→ 闭式 \(π*∝π_θ·exp(βÂ)\)（Eq.9）→ 映到 logit 空间得加法式 \(z'(s,a)=z(s,a)+β·Â(s,a)\)（Eq.10），softmax 回去即最优策略。
   4. **循环**：完成的新轨迹再回写 M，跨 episode 持续进化（Figure 2 底部）。
 - **逐组件必要性**：
   - **Logit Update（核心）**：有消融（Table 8 vs Prompt Update）→ 证明增益来自"调 logit"而非仅"检索信息"。
   - **反思式 step-wise reward**：【推断】负责长程信用分配；**论文未给"去掉 reflective reward 改用稀疏终局 reward"的单独消融**——这是一个未被隔离验证的组件（标出）。
   - **乐观探索 bonus（Eq.6 的 α、λ）**：机制上负责冷启动/未见动作探索；【待核】正文未见对 α、λ、γ 的敏感性消融（可能在 Appendix H/K，正文未展开）。
-  - **检索邻居数 k**：有消融（Figure 4），k∈[8,14] 稳健，过小高方差、过大引噪。
+  - **检索邻居数 k**：有消融（Figure 4），\(k∈[8,14]\) 稳健，过小高方差、过大引噪。
   - **状态抽象**：作者称更多消融见 Appendix K（正文未给数字）。
-- **关键机制/公式（直觉）**：\(exp(βÂ)\) 把"优势大的动作"指数级放大概率、KL 项把分布拉回原模型保住语言连贯；β 是温度，控制"听经验"还是"听原模型"。直觉上等于：原模型先给个先验意见，记忆库说"按历史看动作 a 比平均好 Â"，于是按 exp(βÂ) 重新加权——一步贝叶斯式后验修正，且**有闭式解所以零迭代、O(1)**。
+- **关键机制/公式（直觉）**：\(exp(βÂ)\) 把"优势大的动作"指数级放大概率、KL 项把分布拉回原模型保住语言连贯；β 是温度，控制"听经验"还是"听原模型"。直觉上等于：原模型先给个先验意见，记忆库说"按历史看动作 a 比平均好 Â"，于是按 \(\exp(βÂ)\) 重新加权——一步贝叶斯式后验修正，且**有闭式解所以零迭代、O(1)**。
 - **实验与证据**（§5）：
   - **环境**：WebArena（真实网页导航，5 站点 Admin/GitLab/Map/Reddit/Shopping）+ Jericho（文字冒险游戏 Library/Zork1/Zork3）。协议：每任务连续跑 L=5（WebArena）/50（Jericho）回合，模拟"边用边学"。指标 Avg（学习效率）+ Final（收敛能力），Final−Avg 大=学习曲线陡。
   - **支撑核心主张的关键实验**：(a) **Table 1**（WebArena training-free 对比）JitRL 微平均 Avg 46.98 / Final 51.35，全面超 Static(35.63/36.30)、Memory、Reflexion、AWM、EvoTest；Shopping 较 Static +73.2%。(b) **Table 2**（vs 权重更新法，WebArena-Lite 留出集）JitRL Final **60.00** > WebRL **46.06** > SFT 23.0——**纯推理时优化反超昂贵训练法**，这是最硬的卖点。(c) **Table 3**（Jericho）三游戏全 SOTA，且超过逐游戏 GRPO 训练的 Qwen3-32B（如 Zork1 Final 69 vs GRPO 10）。(d) **Table 9**（成本）JitRL ~\$290 vs WebRL ~\$9900（H200 训练成本估算），>30× 省。(e) **泛化**：Table 4 跨 backbone（Gemini-2.5-flash / GPT-5-mini / DeepSeek-V3.2）均 SOTA；Table 5 冷启动跨任务（只检索 disjoint 任务记忆）仍超 baseline。(f) **定性**：Table 7 展示 logit 如何被纠正（如 "Catalog" 0.90→0.40、"Marketing" 0.70→1.40，纠正语义先验）。
@@ -82,7 +82,7 @@
 
 ### 🎯 对"探索-巩固"idea 对标
 - **强支撑 + 几乎是"在线探索期"的直接实例**：JitRL = 用户 idea 里"在线、免梯度、logit 调制做探索"的近乎教科书实现（PLAN §10 明把它列为 `explore_consolidate` 的"在线 logit 调制"邻居）。
-  - **可借组件**：① \(z'=z+β·Â\) 的**闭式 logit 调制 + Thm 4.1 的 KL 约束最优性证明**——可直接作为"探索期在线干预"的理论骨架；② Eq.6 的**乐观 bonus α/|N(s)|**（不确定性驱动探索、随经验衰减）可做探索调度器；③ 反思式 step-wise reward 做长程信用分配。
+  - **可借组件**：① \(z'=z+β·Â\) 的**闭式 logit 调制 + Thm 4.1 的 KL 约束最优性证明**——可直接作为"探索期在线干预"的理论骨架；② Eq.6 的**乐观 bonus \(α/|N(s)|\)**（不确定性驱动探索、随经验衰减）可做探索调度器；③ 反思式 step-wise reward 做长程信用分配。
   - **缺口（正是"探索-巩固"要补的）**：JitRL **只有探索期、没有巩固期**——记忆只增不删、无几何共识/参数融合/防漂移，知识永远停在"外挂经验库"层面，**从不内化进权重**。这恰好留出"巩固期"的位置：把 JitRL 在线积累的高价值 logit 调制/经验，离线蒸馏/几何共识地固化进参数（即 Agent-Dice 式离线期）。【推断】因此 JitRL 与"探索-巩固"是**互补而非竞品**：它把"探索半边"做到了可证明最优，但"巩固半边"完全空缺。
 
 ### 🔭 开放问题 / 未来方向
@@ -91,7 +91,7 @@
 
 ### 🖼 关键图 top-2
 ![图1-标准RL(训练时,梯度更新) vs JitRL(测试时,logit调整)的对照](../figures/jitrl_fig1.png)
-- 这是**原文 Figure 1**。左边"Standard RL"在训练时用历史轨迹做策略梯度更新（动 π_θ 参数）；右边"Just-In-Time RL"在测试时对**冻结** π_θ 检索相关轨迹估优势 A，再用 KL 正则目标**调 logit**。**选它**：一张图说清全文立意——"用 RL 的形式、却不动梯度"，把方法的定位（免梯度 test-time RL）一眼立住，是理解"探索期 logit 调制"范式的最佳缩略图。
+- 这是**原文 Figure 1**。左边"Standard RL"在训练时用历史轨迹做策略梯度更新（动 \(π_θ\) 参数）；右边"Just-In-Time RL"在测试时对**冻结** \(π_θ\) 检索相关轨迹估优势 \(A\)，再用 KL 正则目标**调 logit**。**选它**：一张图说清全文立意——"用 RL 的形式、却不动梯度"，把方法的定位（免梯度 test-time RL）一眼立住，是理解"探索期 logit 调制"范式的最佳缩略图。
 
 ![图2-JitRL完整流水线:上为推理时检索→优势估计→logit更新,下为回合末写记忆](../figures/jitrl_fig2.png)
 - 这是**原文 Figure 2**（方法主图/pipeline）。上半"Inference"：当前状态 s → 从记忆 M 检索邻居 → 估 Q̂/V̂ → 优势 Â → \(z'=z+β·Â\) 更新 logits → 出动作；下半"Memory Update"：完成轨迹 → Evaluator 算 step-wise reward → 折扣回报 G_t → 三元组 `(s,a,G)` 存回 M。**选它**：完整呈现"在线 per-step 调 logit + per-episode 写记忆"的双频闭环，是抽取 6 轴（学什么信号/改什么/何时改/生命周期）的唯一依据图，信息密度最高。

@@ -12,7 +12,7 @@
 
 - **研究背景**：LLM 后训练越来越多用 RL,尤其在 code/math 这类**可验证域**。深度 RL 历史表明"行动→收反馈→更新策略"的迭代能解锁静态监督学不到的能力。【原文 §1】
 
-- **解决的具体痛点**：**RLVR 被标量 outcome reward 的信用分配瓶颈卡住**。给定问题 x,模型采 y∼πθ,只收一个标量 r(常二值,如单测过/不过)。GRPO 从这种稀疏 outcome reward 估优势,**当一组 rollout 全同奖励(常为0)时优势塌成0、学习停滞**。想用强 teacher 蒸馏(稠密 token 监督)?但**在线学习里强 teacher 常不可得**(目标本就是把能力上限推到现有模型之上)。**关键洞察:瓶颈不是 RL 本身,而是标量 reward 的信息瓶颈**——很多可验证环境其实暴露了**富 tokenized 反馈**(runtime error/失败单测/LLM judge 评语),不仅告诉你"错了"还告诉你"错在哪"。中心问题:**如何把富反馈转成有效信用分配,而不需要外部强 teacher 的监督?**【原文 §1】
+- **解决的具体痛点**：**RLVR 被标量 outcome reward 的信用分配瓶颈卡住**。给定问题 \(x\),模型采 \(y∼π_θ\),只收一个标量 \(r\)(常二值,如单测过/不过)。GRPO 从这种稀疏 outcome reward 估优势,**当一组 rollout 全同奖励(常为0)时优势塌成0、学习停滞**。想用强 teacher 蒸馏(稠密 token 监督)?但**在线学习里强 teacher 常不可得**(目标本就是把能力上限推到现有模型之上)。**关键洞察:瓶颈不是 RL 本身,而是标量 reward 的信息瓶颈**——很多可验证环境其实暴露了**富 tokenized 反馈**(runtime error/失败单测/LLM judge 评语),不仅告诉你"错了"还告诉你"错在哪"。中心问题:**如何把富反馈转成有效信用分配,而不需要外部强 teacher 的监督?**【原文 §1】
 
 - **相关工作 & 各自不足**(表1 是最精炼的定位)：
   | 方法 | on-policy? | 富信号? | 不需强 teacher? |
@@ -29,16 +29,16 @@
 
 - **与最近邻工作的 Δ**：
   - **vs On-Policy Distillation(Agarwal 2024)**：同是 on-policy + logit 蒸馏,但 OPD **需要外部强 teacher**;SDPO 关键 Δ 是**用 self-teacher(同模型+反馈条件)替代强 teacher**——填了"在线无强 teacher"的缺口(表1)。
-  - **vs GRPO**：GRPO 优势是 rollout 内恒定标量(A=r−mean{r});SDPO 优势是 **logit 级、逐 token、仅在 student/teacher 不一致处非零**(A^SDPO=log[π(·|x,f,y<t)/π(·|x,y<t)])。SDPO 是 GRPO 的两点扩展:1-bit 反馈→任意 token 序列反馈、标量优势→稠密 logit 优势。
+  - **vs GRPO**：GRPO 优势是 rollout 内恒定标量(\(A=r−\text{mean}\{r\}\));SDPO 优势是 **logit 级、逐 token、仅在 student/teacher 不一致处非零**(\(A^{SDPO}=\log[π(·|x,f,y_{<t})/π(·|x,y_{<t})]\))。SDPO 是 GRPO 的两点扩展:1-bit 反馈→任意 token 序列反馈、标量优势→稠密 logit 优势。
   - **vs Self-Refine/Reflexion(迭代纠错)**：它们**采样新回答**;SDPO **不采新样,只重算原 rollout 的 logprob**(零采样开销),把反馈变成对原尝试逐 token 的信用分配。
 
 ══ 第三层：怎么做 + 靠不靠谱 ══
 
-- **方法流水线**(Alg.1 + 图2/4)：输入 LLM πθ、问题数据集、每题 G 个 rollout、环境(给反馈) →
-  ① **采样**:从 student πθ(·|x) 采 G 个回答 {y_i}。
+- **方法流水线**(Alg.1 + 图2/4)：输入 LLM \(π_θ\)、问题数据集、每题 \(G\) 个 rollout、环境(给反馈) →
+  ① **采样**:从 student \(π_θ(·|x)\) 采 \(G\) 个回答 \(\{y_i\}\)。
   ② **取反馈**:评估回答得环境反馈 f_i(runtime error/失败单测/judge);若该题在 rollout 组里已被另一尝试解出,把那个成功解也作为反馈(reprompt 模板 Table 2:"Correct solution: …" + "feedback from your unsuccessful attempt: …")。
-  ③ **self-teacher 重评**:计算 self-teacher 的 logprob log πθ(y_{i,t}|x, f_i, y_{i,<t})——**不采新样,只重算原 rollout 在"已看反馈"上下文下的逐 token 概率**。
-  ④ **蒸馏更新**:对 LSDPO=Σ_t KL(πθ(·|x,y<t) ‖ stopgrad·πθ(·|x,f,y<t)) 做梯度下降(Prop 2.1 给出梯度;**stopgrad 阻断 teacher 梯度**)。
+  ③ **self-teacher 重评**:计算 self-teacher 的 logprob \(\log π_θ(y_{i,t}|x, f_i, y_{i,<t})\)——**不采新样,只重算原 rollout 在"已看反馈"上下文下的逐 token 概率**。
+  ④ **蒸馏更新**:对 \(L_{SDPO}=Σ_t KL(π_θ(·|x,y_{<t}) ‖ \text{stopgrad}·π_θ(·|x,f,y_{<t}))\) 做梯度下降(Prop 2.1 给出梯度;**stopgrad 阻断 teacher 梯度**)。
   实现上**只需把现有 RLVR pipeline 的 advantage 换成 SDPO advantage**;用 top-K 蒸馏(K=100)近似 KL 避免显存爆;用**正则 teacher**(EMA 或与初始 teacher 插值)+ **对称 JS 散度**稳训练。
   输出:能把富反馈内化、稠密自我纠错的策略。
 
@@ -51,7 +51,7 @@
   - **SDPO+GRPO 混合**:λ 加权两种优势(式3,图11)。弱模型(Qwen3-0.6B)上混合更稳(GRPO 优势补救不可靠的 SDPO 优势),强模型上 SDPO 单用略优。
 
 - **关键机制/公式直觉**：
-  - **self-teacher = 同模型 + 反馈条件**:直觉是"我答完看到错误反馈后,回头看自己的答案能指出哪里错"。πθ(·|x,f) 因看到额外信息(反馈)应比 πθ(·|x) 更准——把这个"看过反馈的我"当老师。
+  - **self-teacher = 同模型 + 反馈条件**:直觉是"我答完看到错误反馈后,回头看自己的答案能指出哪里错"。\(π_θ(·|x,f)\) 因看到额外信息(反馈)应比 \(π_θ(·|x)\) 更准——把这个"看过反馈的我"当老师。
   - **KL + stopgrad(式1)**:直觉是"让 student 的 next-token 分布去逼近 self-teacher 看过反馈后的分布",stopgrad 保证 teacher 不被拉回迎合 student。**SDPO 优势 A^SDPO=log[P_teacher/P_student]**:teacher 更同意的 token 优势为正、更不同意的为负,**只在不一致处非零**(图4/9:激活稀疏,精准定位错误 token)。这是**前向硬(用 teacher 条件分布)/反向软(梯度只流 student)** 的解耦——与项目 MEMORY 记的 forward-hard/backward-soft 签名同构。
   - **零采样开销**:不像 Self-Refine 采新回答,SDPO 只重算原 rollout 的 logprob(图5:仅 +5.8%~17.1% 时间,可并行)。
   - **学会简洁推理(§3.3)**:SDPO 响应平均短 3×(Chemistry 上 11×),因稠密信用分配给每个 token 精准优势→避免 GRPO 那种"Hmm/Wait"填充与循环推理(图7)。**"refining how it reasons, not how long"**。
@@ -60,7 +60,7 @@
   - **数据集/设置**：三场景。**§3 无富反馈**(标量环境,用同组成功 rollout 当反馈):SciKnowEval L3(化学/物理/生物/材料)+ ToolAlpaca 工具调用,Qwen3-8B/Olmo3-7B-Instruct,4×GH200,avg@16。**§4 富反馈**:LiveCodeBench v6(131 题,LeetCode 式 public/private 单测),Qwen3 系。**§5 test-time**:对单题在线自蒸馏。用 **verl 库**多 GPU 训练。【原文 §3.1/§4/§5】
   - **核心主张证据**：(1) **§3 无富反馈**:SDPO 70.2% vs GRPO 66.6%(aggregate),且 Olmo3 Chemistry **50 分钟达 GRPO 5 小时精度=6× 加速**,5h 精度高 10+ 点,响应短 11×(图6);(2) **§4 富反馈**(图1,核心):LCBv6 **SDPO 48.8% vs GRPO 41.2%**,且 4× 更少 generation 达 GRPO 终点,**超过 Claude Sonnet 4(40.5%)/Opus 4(39.7%)**;(3) **§4.1 随模型规模增益增大**(图8):大模型 SDPO 显著超 GRPO、小模型(Qwen3-0.6B/Qwen2.5-1.5B)仅持平或反而不如——self-teaching 是**随规模涌现**的能力;(4) **§4.4 防遗忘**(表5):SDPO 在 holdout(IFEval/ArenaHard/MMLU-Pro)上 performance-forgetting tradeoff 最优;(5) **§5 test-time**:对 base pass@64<0.03 的难题,SDPO 加速发现解 **3×**。
   - **baseline 公平性**：GRPO 基线是**强化版**(含 asymmetric clipping/避免 biased normalization/off-policy 修正),还单列 on-policy GRPO 匹配 SDPO 超参;充分超参 sweep。**对比相当公平且诚实**(off-policy GRPO 多步 vs SDPO 单步)。
-  - **"看着强但需警惕"的点**：(1) **增益强依赖模型规模**——弱模型(Qwen2.5-1.5B/Qwen3-0.6B)上 SDPO **反而不如 GRPO**(作者诚实报告),因弱模型 in-context 回溯不准、self-teacher 不可靠;(2) **仅 code/math/tool 可验证域**;(3) **当前只 on-policy 单步**(off-policy 多步留作 future,可能进一步提效);(4) self-teacher 的"优势"本质上**对真目标 J(θ) 有偏**(§4.5,类比 bootstrapped vs Monte Carlo),靠 in-context 准确性兜底。
+  - **"看着强但需警惕"的点**：(1) **增益强依赖模型规模**——弱模型(Qwen2.5-1.5B/Qwen3-0.6B)上 SDPO **反而不如 GRPO**(作者诚实报告),因弱模型 in-context 回溯不准、self-teacher 不可靠;(2) **仅 code/math/tool 可验证域**;(3) **当前只 on-policy 单步**(off-policy 多步留作 future,可能进一步提效);(4) self-teacher 的"优势"本质上**对真目标 \(J(θ)\) 有偏**(§4.5,类比 bootstrapped vs Monte Carlo),靠 in-context 准确性兜底。
 
 - **假设与失效边界**：
   - 【原文 §4.1 Takeaway 2】**核心假设:self-teacher 看过反馈后准确率 > student**(强模型才是好 in-context learner)——**SDPO 增益随规模涌现,弱模型上反而不如 GRPO**(Qwen2.5-1.5B 实测)。

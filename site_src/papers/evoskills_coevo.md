@@ -6,7 +6,7 @@
 
 ## ══ 第一层:一眼看懂 ══
 
-- 🟦 **TL;DR**:Anthropic 提出"skill"——比 tool 复杂得多的**多文件结构化包**(SKILL.md 工作流 + 脚本 + 领域参考)。但现在 skill 几乎全靠人手写:费力、不可扩、质量无保证,SkillsBench 上甚至有领域(如 Natural Science)装了人工 skill **反而掉点**(作者归因为"人机认知错位":人类直觉的工作流不匹配 LLM 实际怎么处理上下文/推理/执行)。现有"自演进 tool"的方法又只会一次性生成简单单函数,搞不定多文件包;有些还重度依赖 ground-truth 监督。CoEvoSkills 的做法:① **Skill Generator** 维护一个持久对话上下文(初始=任务指令 I + 一个领域无关的 meta-skill「skill-creator」),每轮读当前技能 + 累积的验证反馈,产出改进版技能并执行得输出文件;② **Surrogate Verifier**——一个**完全独立的 LLM session**,只看任务指令 I 和输出文件 x(看不到 generator 的代码/推理/技能内容,防确认偏误),据此**合成一套确定性测试断言 V**,算 proxy reward R̃=通过断言比例,并在失败时给**逐断言结果 + 根因分析 + 可执行修改建议**;③ 当 R̃=1(代理测试全过)才调 **GT oracle** 在全新环境 E′ 重跑,**只返回不透明的 pass/fail**(不给测试内容);若 oracle 仍失败,verifier 被迫"升级测试"(更多样/更难),generator 继续改。两者交替 generate–verify–refine。SkillsBench(87 任务/约 20 域,确定性 verifier)上:Claude Opus 4.6 + Claude Code 达 **71.1% pass rate(+40.5pp vs 无技能,+17.6pp vs 人工技能)**;Opus 学的技能迁到 6 个别家模型全涨 +36~44pp。
+- 🟦 **TL;DR**:Anthropic 提出"skill"——比 tool 复杂得多的**多文件结构化包**(SKILL.md 工作流 + 脚本 + 领域参考)。但现在 skill 几乎全靠人手写:费力、不可扩、质量无保证,SkillsBench 上甚至有领域(如 Natural Science)装了人工 skill **反而掉点**(作者归因为"人机认知错位":人类直觉的工作流不匹配 LLM 实际怎么处理上下文/推理/执行)。现有"自演进 tool"的方法又只会一次性生成简单单函数,搞不定多文件包;有些还重度依赖 ground-truth 监督。CoEvoSkills 的做法:① **Skill Generator** 维护一个持久对话上下文(初始=任务指令 I + 一个领域无关的 meta-skill「skill-creator」),每轮读当前技能 + 累积的验证反馈,产出改进版技能并执行得输出文件;② **Surrogate Verifier**——一个**完全独立的 LLM session**,只看任务指令 I 和输出文件 x(看不到 generator 的代码/推理/技能内容,防确认偏误),据此**合成一套确定性测试断言 V**,算 proxy reward \(R̃=\)通过断言比例,并在失败时给**逐断言结果 + 根因分析 + 可执行修改建议**;③ 当 \(R̃=1\)(代理测试全过)才调 **GT oracle** 在全新环境 E′ 重跑,**只返回不透明的 pass/fail**(不给测试内容);若 oracle 仍失败,verifier 被迫"升级测试"(更多样/更难),generator 继续改。两者交替 generate–verify–refine。SkillsBench(87 任务/约 20 域,确定性 verifier)上:Claude Opus 4.6 + Claude Code 达 **71.1% pass rate(+40.5pp vs 无技能,+17.6pp vs 人工技能)**;Opus 学的技能迁到 6 个别家模型全涨 +36~44pp。
 
 - **最巧的一步**:**"信息隔离的 surrogate verifier 自合成测试 + GT oracle 只给不透明 1-bit 触发 test escalation"** 这套**双反馈+信息隔离**抽掉就垮。① 去掉 surrogate verifier(只靠 oracle 的 pass/fail 演进)→ 71.1%**暴跌到 41.1%(−30pp)**(消融 Table B1)——因为没有逐断言诊断,generator 无法做"定向修复",只能瞎演进。② oracle 只给 1-bit 而非测试内容,是**防 generator 过拟合 held-out 测试**的关键设计;verifier 与 generator 信息隔离,是**防自我验证确认偏误**的关键。三者合起来才让"无 GT 反馈下的自演进"既稠密可用又不作弊。
 
@@ -33,13 +33,13 @@
 ## ══ 第三层:怎么做 + 靠不靠谱 ══
 
 - **方法流水线**(§3,Fig.3,Algorithm 1):
-  1. **POMDP 形式化(§3.2)**:M=⟨X,A,T,O,Ω,R⟩,X=完整文件系统+进程,A=终端命令+文件编辑,R(x_T)∈[0,1] 用**隐藏 GT 测试**评最终输出文件。agent 只收部分观察(命令执行结果),按 observation-action 历史 h_t 行动。skill S **条件化策略** a_t∼π_θ(a_t|h_t,S);目标 S*=argmax_S J(S),J(S)=E[R(x_T)]。
+  1. **POMDP 形式化(§3.2)**:\(M=⟨X,A,T,O,Ω,R⟩\),X=完整文件系统+进程,A=终端命令+文件编辑,\(R(x_T)∈[0,1]\) 用**隐藏 GT 测试**评最终输出文件。agent 只收部分观察(命令执行结果),按 observation-action 历史 \(h_t\) 行动。skill S **条件化策略** \(a_t∼π_θ(a_t|h_t,S)\);目标 \(S*=argmax_S J(S)\),\(J(S)=E[R(x_T)]\)。
   2. **难点**:直接优化 J(S) 不可行——GT 评估昂贵且只回不透明 pass/fail,不泄露测试内容/失败细节。
-  3. **代理 reward(Eq.4)**:引入 surrogate verifier reward R̃(x,V)=(1/|V|)·Σ 1[e_k(x)]\(通过断言比例),V={e₁…e_|V|}=独立 verifier 生成的确定性断言集。但 surrogate 只在它忠实逼近隐藏 R 时有用 → 耦合优化:技能要最大化 proxy,proxy 又须对齐隐藏 GT。
-  4. **交替优化(Eq.5–6)**:**Skill refinement** S^(i+1)←argmax_S R̃(Φ(S,E),V^(j))(固定 verifier 测试套件下,用 LLM 迭代采样近似 argmax);**Test escalation** 仅当"surrogate 全过但 oracle 失败"(R̃=1 ∧ R<1)触发,verifier **无 GT 测试内容访问**地独立强化测试。
-  5. **Skill Generator(§3.3)**:持久上下文 C^(0)=(I, S_meta),S_meta=领域无关 meta-skill(教怎么造 skill,即 Anthropic skill-creator)。每轮 S^(i+1)∼π_θ(·|S^(i), C^(i+1)),C^(i+1)=C^(i)⊕F^(i,j)(把 verifier 的失败诊断 F=失败用例+根因+可执行修改建议追加进上下文)。执行 x^(i)=Φ(S^(i),E)。
-  6. **Surrogate Verifier(§3.3)**:**完全独立 LLM session π_θ^V**,只观测 I 和输出文件 x^(i),**对 generator 的推理/代码/技能内容全盲** → 条件独立、不继承 generator 偏误。生成确定性断言套件,失败时给结构化诊断 F;迭代精化 V^(j+1)∼π_θ^V(·|I, x^(i), V^(j))。
-  7. **协同进化(Alg.1)**:R̃<1 → 锁定 V、用 F 驱动技能修订;R̃=1 但 oracle 失败 → **只回不透明 1-bit**(防过拟合 held-out 测试),verifier 据更新的技能+输出**升级测试套件**(更多样/全面/难);R=1 → 早停;R>R_best → 存最佳快照。预算 N=5 oracle 干预、M=15 surrogate 重试、上下文占用上限 β=0.7(超则 break 防溢出)。
+  3. **代理 reward(Eq.4)**:引入 surrogate verifier reward \(R̃(x,V)=(1/|V|)·Σ\,1[e_k(x)]\)(通过断言比例),\(V=\{e₁…e_{|V|}\}=\)独立 verifier 生成的确定性断言集。但 surrogate 只在它忠实逼近隐藏 R 时有用 → 耦合优化:技能要最大化 proxy,proxy 又须对齐隐藏 GT。
+  4. **交替优化(Eq.5–6)**:**Skill refinement** \(S^{(i+1)}←argmax_S R̃(Φ(S,E),V^{(j)})\)(固定 verifier 测试套件下,用 LLM 迭代采样近似 argmax);**Test escalation** 仅当"surrogate 全过但 oracle 失败"(\(R̃=1 ∧ R<1\))触发,verifier **无 GT 测试内容访问**地独立强化测试。
+  5. **Skill Generator(§3.3)**:持久上下文 \(C^{(0)}=(I, S_{meta})\),\(S_{meta}=\)领域无关 meta-skill(教怎么造 skill,即 Anthropic skill-creator)。每轮 \(S^{(i+1)}∼π_θ(·|S^{(i)}, C^{(i+1)})\),\(C^{(i+1)}=C^{(i)}⊕F^{(i,j)}\)(把 verifier 的失败诊断 F=失败用例+根因+可执行修改建议追加进上下文)。执行 \(x^{(i)}=Φ(S^{(i)},E)\)。
+  6. **Surrogate Verifier(§3.3)**:**完全独立 LLM session \(π_θ^V\)**,只观测 I 和输出文件 \(x^{(i)}\),**对 generator 的推理/代码/技能内容全盲** → 条件独立、不继承 generator 偏误。生成确定性断言套件,失败时给结构化诊断 F;迭代精化 \(V^{(j+1)}∼π_θ^V(·|I, x^{(i)}, V^{(j)})\)。
+  7. **协同进化(Alg.1)**:\(R̃<1\) → 锁定 V、用 F 驱动技能修订;\(R̃=1\) 但 oracle 失败 → **只回不透明 1-bit**(防过拟合 held-out 测试),verifier 据更新的技能+输出**升级测试套件**(更多样/全面/难);\(R=1\) → 早停;\(R>R_{best}\) → 存最佳快照。预算 N=5 oracle 干预、M=15 surrogate 重试、上下文占用上限 \(β=0.7\)(超则 break 防溢出)。
   8. **额外护栏(附录 E)**:**强制 progress checklist**(环境发现/技能创建/自反思/任务执行/总结全标完才允许升级到 oracle)——防"未走完完整演进流程就消耗 oracle"(Table E1 Round 2 surrogate 全过但 checklist 未完,不进 oracle)。
 
 - **逐组件必要性(消融 Table B1,Opus 4.6 + Claude Code,单 run)**:
@@ -79,7 +79,7 @@
 
 | 学什么信号 | 改什么 | 何时改 | 免梯度? | 记忆-技能生命周期 | 防遗忘机制 |
 |---|---|---|---|---|---|
-| **Surrogate verifier 自合成测试的逐断言失败诊断**(根因+可执行修改建议,稠密)+ **GT oracle 的不透明 pass/fail 1-bit**(稀疏、权威、触发 test escalation);proxy reward R̃=断言通过率 | **改 skill 包(多文件:SKILL.md 工作流 + 可执行脚本 + 领域参考,LLM 文本/代码编辑)** + verifier 侧测试套件 V(协同进化);**base LLM 权重不改** | **离线批量·迭代演进**:每任务 generate–verify–refine 循环,平均 4.1 验证 cycle / 2.4 oracle 轮收敛(预算 N=5/M=15);部署 test-time 直接装好技能、不再演进 | **完全免梯度**——generator/verifier/oracle 均冻结 LLM 经 prompt 调用;"优化"=LLM 迭代采样近似 argmax | 写入=generator 据诊断迭代精化技能包;检索=部署时把演进好的 skill 包装入 agent(预装,非动态检索库);淘汰=保留最佳 oracle 快照(R>R_best 才更新 S*)+ 失败回退;共享=技能包**跨 5 厂 6 模型迁移**(可检视、可移植) | **GT oracle 快照(存最佳 S*)+ surrogate 接住回归**(附录 E Round5 surrogate catches regression)+ **成功测试约束**;**信息隔离**(verifier 不继承 generator 偏误)防自验证退化;base LLM 冻结天然不遗忘 |
+| **Surrogate verifier 自合成测试的逐断言失败诊断**(根因+可执行修改建议,稠密)+ **GT oracle 的不透明 pass/fail 1-bit**(稀疏、权威、触发 test escalation);proxy reward \(R̃=\)断言通过率 | **改 skill 包(多文件:SKILL.md 工作流 + 可执行脚本 + 领域参考,LLM 文本/代码编辑)** + verifier 侧测试套件 V(协同进化);**base LLM 权重不改** | **离线批量·迭代演进**:每任务 generate–verify–refine 循环,平均 4.1 验证 cycle / 2.4 oracle 轮收敛(预算 N=5/M=15);部署 test-time 直接装好技能、不再演进 | **完全免梯度**——generator/verifier/oracle 均冻结 LLM 经 prompt 调用;"优化"=LLM 迭代采样近似 argmax | 写入=generator 据诊断迭代精化技能包;检索=部署时把演进好的 skill 包装入 agent(预装,非动态检索库);淘汰=保留最佳 oracle 快照(\(R>R_{best}\) 才更新 S*)+ 失败回退;共享=技能包**跨 5 厂 6 模型迁移**(可检视、可移植) | **GT oracle 快照(存最佳 S*)+ surrogate 接住回归**(附录 E Round5 surrogate catches regression)+ **成功测试约束**;**信息隔离**(verifier 不继承 generator 偏误)防自验证退化;base LLM 冻结天然不遗忘 |
 
 - ⑦ **开源代码 + 框架/harness**:**项目页公开** https://zhang-henry.github.io/CoEvoSkills/(首页脚注给出;arXiv abstract 标注开源框架)。**框架 = 无外部 RL/训练框架**(不训练权重,纯冻结 LLM + prompt + 多文件编辑 + 自动测试合成);属**自研 co-evolutionary orchestration harness**——核心是 Skill Generator session + 信息隔离 Surrogate Verifier session + GT oracle 重执行 + progress checklist 编排器。**执行 harness(oracle 评估时按模型配)**:Claude Code(Opus 4.6 / Sonnet 4.5)、Codex(GPT-5.2)、**Terminus-2**(Haiku 4.5 / Qwen3-Coder / DeepSeek V3 / Mistral Large 3)。meta-skill=Anthropic skill-creator。〔仓库/项目页内部实现细节待核——本分析基于 PDF 正文+附录;**未 clone 验证**,P3.5 已标 has_code,具体代码结构以项目页/仓库为准〕
 

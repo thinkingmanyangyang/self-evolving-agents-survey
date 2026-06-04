@@ -7,7 +7,7 @@
 
 ## ══ 第一层：一眼看懂 ══
 
-- 🟦 **TL;DR**：【原文】解码策略很大程度决定输出质量，但 greedy/固定 temperature 是静态且任务无关的，跨域(摘要新闻 vs 小说 vs Reddit)表现不稳。本文把**解码当序列决策(MDP)**,学一个**轻量 RL 采样器(2 层 MLP 策略)在推理时动态调 temperature/top-p**、LLM 权重冻结。状态=mean-pooled 隐状态 + top-50 logits + prefix 长度 + 下一 token 归一化熵;动作=温度/top-p(高斯,squash 到 T∈[0.2,1.2]、p∈[0.8,1.0]);奖励=**组合式 shaping**(ROUGE-L 0.5 + 长度罚 0.2 + 覆盖奖 0.1 + 重复罚 + 完整性罚);用 **PPO** 训。在 BookSum/arXiv/WikiHow、Granite-3.3-2B 与 Qwen-2.5-0.5B 上,相对 greedy 最高 **+88%(BookSum,Granite)/+79%(WikiHow,Qwen)**。
+- 🟦 **TL;DR**：【原文】解码策略很大程度决定输出质量，但 greedy/固定 temperature 是静态且任务无关的，跨域(摘要新闻 vs 小说 vs Reddit)表现不稳。本文把**解码当序列决策(MDP)**,学一个**轻量 RL 采样器(2 层 MLP 策略)在推理时动态调 temperature/top-p**、LLM 权重冻结。状态=mean-pooled 隐状态 + top-50 logits + prefix 长度 + 下一 token 归一化熵;动作=温度/top-p(高斯,squash 到 \(T∈[0.2,1.2]\)、\(p∈[0.8,1.0]\));奖励=**组合式 shaping**(ROUGE-L 0.5 + 长度罚 0.2 + 覆盖奖 0.1 + 重复罚 + 完整性罚);用 **PPO** 训。在 BookSum/arXiv/WikiHow、Granite-3.3-2B 与 Qwen-2.5-0.5B 上,相对 greedy 最高 **+88%(BookSum,Granite)/+79%(WikiHow,Qwen)**。
 - **最巧的一步**：【原文+推断】**奖励 shaping 设计 >> RL 算法本身**——这是全文反复强调的主结论。【推断】抽掉结构化 shaping 项(只留 ROUGE),消融(Table 2)显示**ROUGE-only 增益微弱甚至为负、early→late 几乎不升**,而组合奖励才稳定提升;即"会动态调温"本身不值钱,值钱的是**用多分量奖励刻画'好摘要'让策略有可学的梯度信号**。【推断依据:§4.2 Takeaway 1–3 + Table 2 五组奖励消融,作者明说"reward design is as important as the RL algorithm itself"】。
 
 ---
@@ -26,9 +26,9 @@
 
 - **方法流水线(把解码当 MDP)**：【原文,Fig.1,§3】frozen LLM 每步产词表分布,RL 采样器(agent)观察状态→选动作(采样参数)→影响下一 token→经 prefix 影响未来状态,EOS 或长度上限终止=一个完整反馈环。
   1. **State**:concat(① mean-pooled final hidden states,② top-k logits(k=50),③ prefix 长度,④ 下一 token 归一化熵),线性投影+layer-norm 到策略输入维(§3.1 State)。
-  2. **Action**:2 维(**temperature + top-p**),策略输出高斯动作、sigmoid squash 后仿射映到 **T∈[0.2,1.2]、p∈[0.8,1.0]**;动作不仅影响当前 token、还经演化 prefix 影响未来状态(闭环递归依赖)(§3.1 Action)。
-  3. **Reward(组合式 shaping)**:加权归一化组合——**ROUGE-L F1(0.5)** + **长度罚(0.2,偏离源导出理想长度)** + **覆盖奖(0.1,capped,与重要源 token >4 字符的重叠)** + **重复罚(>30% 词重复时触发)** + **完整性罚(−0.05,缺句末标点)**;raw 经 [RAW_MIN,RAW_MAX] 线性归一到 [0,1]\(§4.1 Rewards)。
-  4. **Policy Learning(PPO)**:策略=2 层 MLP(hidden 256,GELU)→2D 动作高斯;clipped PPO(ε=0.2),GAE(γ=0.99,λ=0.95),value 系数 0.5、entropy 系数 0.01;每 dataset **100 prompt**(明确 low-resource RL),报 (i) 绝对平均奖励 + (ii) early→late 变化(证学到而非塌成静态)(§3.2,§4.1)。
+  2. **Action**:2 维(**temperature + top-p**),策略输出高斯动作、sigmoid squash 后仿射映到 **\(T∈[0.2,1.2]\)、\(p∈[0.8,1.0]\)**;动作不仅影响当前 token、还经演化 prefix 影响未来状态(闭环递归依赖)(§3.1 Action)。
+  3. **Reward(组合式 shaping)**:加权归一化组合——**ROUGE-L F1(0.5)** + **长度罚(0.2,偏离源导出理想长度)** + **覆盖奖(0.1,capped,与重要源 token >4 字符的重叠)** + **重复罚(>30% 词重复时触发)** + **完整性罚(−0.05,缺句末标点)**;raw 经 \([\text{RAW\_MIN},\text{RAW\_MAX}]\) 线性归一到 \([0,1]\)(§4.1 Rewards)。
+  4. **Policy Learning(PPO)**:策略=2 层 MLP(hidden 256,GELU)→2D 动作高斯;clipped PPO(\(ε=0.2\)),GAE(\(γ=0.99,λ=0.95\)),value 系数 0.5、entropy 系数 0.01;每 dataset **100 prompt**(明确 low-resource RL),报 (i) 绝对平均奖励 + (ii) early→late 变化(证学到而非塌成静态)(§3.2,§4.1)。
 - **逐组件必要性(及消融)**：【原文】**核心消融在 reward(Table 2,arXiv+Granite-3.3,5 组变体)**——
   - **ROUGE-only**(去全部 shaping):增益微弱甚至为负(+6.96% vs greedy 但 −0.59% vs static),证 overlap 单指标不够。
   - **Core shaping**(ROUGE+长度+重复,去覆盖):提绝对奖励但 early→late **负**(−4.56%),不稳。
@@ -37,7 +37,7 @@
   - **Sigmoid scaling**:平滑但降训练敏感度、结果中等稳定。
   - **Proposed(全组合)**:平衡强增益与鲁棒,支撑"结构化 shaping 项关键"主张。**结论(§4.2 Takeaway 7)**:"reward design is as important as the RL algorithm itself"。【推断】注意:消融**只在 arXiv+Granite 一格**做,跨域/跨模型未系统消融。
 - **关键机制/公式直觉**：
-  - **clipped PPO L_clip = E[min(ρ_t A_t, clip(ρ_t,1−ε,1+ε)A_t)]**,ρ_t=π_θ(a_t|s_t)/π_θold(a_t|s_t)(§3.2):【原文+推断】标准 PPO,clip 限制单步策略更新幅度、保 low-resource(100 prompt)下稳定;选 PPO 而非 REINFORCE 正因 on-policy 稳定性对样本少的设定关键。
+  - **clipped PPO \(L_{clip} = E[\min(ρ_t A_t, \text{clip}(ρ_t,1−ε,1+ε)A_t)]\)**,\(ρ_t=π_θ(a_t|s_t)/π_{θold}(a_t|s_t)\)(§3.2):【原文+推断】标准 PPO,clip 限制单步策略更新幅度、保 low-resource(100 prompt)下稳定;选 PPO 而非 REINFORCE 正因 on-policy 稳定性对样本少的设定关键。
   - **动作经 prefix 影响未来状态(闭环递归)**(§3.1):【原文+推断】这是"in-episode 自改"的极简形式——早期解码决策改变 prefix→改变后续状态分布→agent 在一个 episode 内据后果精炼策略;但本文是**单 episode 内、不跨 episode 学**。
 - **实验与证据(关键实验+具体数字)**：【原文】base=**Granite-3.3-2B-Base + Qwen-2.5-0.5B**(均冻结);任务=摘要 **BookSum(长叙事)/arXiv(科学)/WikiHow(how-to)**,各 100 prompt。**主结果(Table 1,Proposed Reward)**:RL 一致超 greedy/static,相对 greedy 最高 **+88.44%(BookSum,Granite)/+78.95%(WikiHow,Qwen)**(注:BookSum-Qwen 那个 +950% 是因 greedy 基数极小 0.014→0.147,不宜直接引为"950% 提升")。**最关键支撑实验**=Fig.2 训练奖励曲线(WikiHow+Granite)**稳步上升**(证 PPO 学到非平凡策略、非塌成静态)+ Table 2 五组奖励消融(证"奖励设计 >> RL 算法"主结论)。**baseline 是否公平**:【推断】比 greedy(argmax)和 static(固定 temp=0.3)两个静态基线、同解码基础设施、训/评 prompt 不重叠,较公平;但**仅摘要单任务、0.5B–2B 小模型**。**看着强但没回答核心问题**:【推断】**early→late 改善"generally modest"且部分为负**(Table 1:WikiHow-Qwen **−43.60%**、arXiv-Granite −4.38%)——即多处训练不稳/未持续改善;且"会动态调温"本身不值钱(ROUGE-only 失效),值钱的全在 reward shaping,这本质上**把难题转移到了"怎么设计 reward"**而非解决它。
 - **假设与失效边界**：【原文+推断】① 假设**任务质量可被组合式 shaping 奖励刻画**(本文仅摘要);② 失效:**奖励设计高度敏感**(ROUGE-only 失效、shaping 项配比影响稳定性,Table 2)、**部分配置 early→late 为负**(WikiHow-Qwen −43.6%)、仅 **0.5B–2B 小模型 + 摘要单任务**;③ 【原文,§5】**OOD 鲁棒性与向 dialogue/code/reasoning 迁移均未测**(reward 在那些任务更难定义),作者明确列为 future work;**不碰任何知识/记忆固化**。
@@ -59,7 +59,7 @@
 
 ### ⑦ 开源代码 + 框架/harness
 - 【原文/待核】正文**未给出代码链接**〔待核:arXiv 主页是否附 release——本次仅核 PDF,正文无 link〕。
-- 框架/harness:【原文】base=**Granite-3.3-2B-Base + Qwen-2.5-0.5B**(均冻结);算法 **PPO**(clip ε=0.2,γ=0.99,λ=0.95,GAE,值/熵系数 0.5/0.01);每 dataset 100 prompts(low-resource RL)。任务=摘要(BookSum/arXiv/WikiHow)。**非纯 training-free**(训小策略)。
+- 框架/harness:【原文】base=**Granite-3.3-2B-Base + Qwen-2.5-0.5B**(均冻结);算法 **PPO**(clip \(ε=0.2,γ=0.99,λ=0.95\),GAE,值/熵系数 0.5/0.01);每 dataset 100 prompts(low-resource RL)。任务=摘要(BookSum/arXiv/WikiHow)。**非纯 training-free**(训小策略)。
 
 ### 💰 资源/成本与可扩展性
 - 【原文】策略=2 层 MLP(hidden 256),**每 token 算力相对 LLM 前向可忽略**;状态特征解码时本就产生、无额外前向;每 run 仅 100 prompt(明确"low-resource RL setting")。可降 top-k 特征维或隐状态输入以省资源。【推断】部署近零开销;训练成本极低(小模型+少 prompt+小策略)。**未报具体 $/GPU 时**。

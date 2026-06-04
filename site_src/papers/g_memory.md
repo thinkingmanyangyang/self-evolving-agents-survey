@@ -28,38 +28,38 @@
 ══ 第三层:怎么做 + 靠不靠谱 ══
 
 - **三层图的形式化**:
-  - **Interaction (Utterance) Graph** G_inter=(U,E_u):节点 u_i=(发言 agent A_i, 文本 m_i) 是原子 utterance,边按时序"u_j 传给并启发 u_k"。
-  - **Query Graph** G_query=(Q,E_q):节点 q_i=(原始 query Q_i, 状态 Ψ_i∈{Failed,Resolved}, 关联的 G_inter),边编码 query 间语义关系——使检索能超越粗粒度 embedding 相似度、利用拓扑。
-  - **Insight Graph** G_insight=(I,E_i):节点 ι_k=(洞见内容 κ_k, 支撑 query 集 Ω_k),**超边** (ι_m,ι_n,q_j) 表示"洞见 ι_m 通过 query q_j 为 ι_n 提供上下文"。【原文 §3】
+  - **Interaction (Utterance) Graph** \(G_{inter}=(U,E_u)\):节点 \(u_i=(\text{发言 agent } A_i, \text{文本 } m_i)\) 是原子 utterance,边按时序"\(u_j\) 传给并启发 \(u_k\)"。
+  - **Query Graph** \(G_{query}=(Q,E_q)\):节点 \(q_i=(\text{原始 query } Q_i, \text{状态 } \Psi_i\in\{\text{Failed},\text{Resolved}\}, \text{关联的 } G_{inter})\),边编码 query 间语义关系——使检索能超越粗粒度 embedding 相似度、利用拓扑。
+  - **Insight Graph** \(G_{insight}=(I,E_i)\):节点 \(\iota_k=(\text{洞见内容 } \kappa_k, \text{支撑 query 集 } \Omega_k)\),**超边** \((\iota_m,\iota_n,q_j)\) 表示"洞见 \(\iota_m\) 通过 query \(q_j\) 为 \(\iota_n\) 提供上下文"。【原文 §3】
 - **方法流水线(对应 Figure 2,三步)**:
-  1. **§4.1 粗粒度检索**:新 query Q 到来,在 Query Graph 上做相似度 top-k 检索得 QS(embedding 用 MiniLM),再**1-hop 邻居扩展**成 Q̃S(因为纯相似度可能浅层/有噪)。组织记忆理论:先取宽泛 schema 再精细访问。
+  1. **§4.1 粗粒度检索**:新 query Q 到来,在 Query Graph 上做相似度 top-k 检索得 \(QS\)(embedding 用 MiniLM),再**1-hop 邻居扩展**成 \(\tilde{Q}S\)(因为纯相似度可能浅层/有噪)。组织记忆理论:先取宽泛 schema 再精细访问。
   2. **§4.2 双向分层遍历**:
-     - *向上(query→insight)*:投影器 Π_{Q→I} 取"支撑 query 集与 Q̃S 相交"的 insight 节点 IS,提供高层战略指导。
+     - *向上(query→insight)*:投影器 \(\Pi_{Q\to I}\) 取"支撑 query 集与 \(\tilde{Q}S\) 相交"的 insight 节点 IS,提供高层战略指导。
      - *向下(query→interaction)*:用 LLM 相关性打分 R_LLM 选 top-M 历史 query,再用 **LLM graph sparsifier S_LLM** 把它们的交互图压缩成核心子图(保留关键对话元素)。
      - *role-specific 分发*:算子 Φ 评估每条 insight / 压缩交互图对"该 agent 角色 Role_i + 任务 Q"的效用,**给每个 agent 初始化定制的 Mem_i**(过滤后的 insights + 交互片段 + 摘要)。可灵活配置调用时机(每轮/特定 agent)。
-  3. **§4.3 分层记忆更新**:MAS 执行完拿到解 a(T) 与环境反馈(状态 Ψ、token、指标)。**三层联合更新**:interaction 层追踪每 agent utterance 建 G_inter 存档;query 层新建 q_new=(Q,Ψ,G_inter) 并与"top-M 相关历史 query + 支撑 IS 的 query 集"连边;insight 层用摘要函数 J 生成新 insight ι_new、与"本次用到的 insight"超边相连,并把 q_new 加进被用 insight 的支撑集 Ω_k(反映成功/失败应用)。形成跨 episode 的持续学习闭环。【原文 §4.1-4.3】
+  3. **§4.3 分层记忆更新**:MAS 执行完拿到解 a(T) 与环境反馈(状态 Ψ、token、指标)。**三层联合更新**:interaction 层追踪每 agent utterance 建 G_inter 存档;query 层新建 \(q_{new}=(Q,\Psi,G_{inter})\) 并与"top-M 相关历史 query + 支撑 IS 的 query 集"连边;insight 层用摘要函数 J 生成新 insight \(\iota_{new}\)、与"本次用到的 insight"超边相连,并把 \(q_{new}\) 加进被用 insight 的支撑集 \(\Omega_k\)(反映成功/失败应用)。形成跨 episode 的持续学习闭环。【原文 §4.1-4.3】
 
 - **逐组件必要性**:
   - *insight 模块 vs interaction 模块*:Figure 4c 消融——只 interaction:AutoGen 平均掉 4.47%、DyLAN 掉 3.82%;只 insight 也掉(PDDL 50.00 vs 全 55.24)。两者**互补,都必要**,有消融。
   - *1-hop 扩展*:Figure 4a 敏感性——1-hop 最佳,2/3-hop 反而掉点(PDDL 2-hop 跌到 49.79%)→ 过度扩展引入无关 insight。✔有分析。
-  - *检索 query 数 k*:Figure 4b——最优 k∈{1,2},k=5 显著掉点(ALFWorld+AutoGen −7.71%)→ 取太多引入噪声。✔有分析。
+  - *检索 query 数 k*:Figure 4b——最优 \(k\in\{1,2\}\),\(k=5\) 显著掉点(ALFWorld+AutoGen −7.71%)→ 取太多引入噪声。✔有分析。
   - *role-specific 分发 Φ / LLM sparsifier*:**无单独消融**(没有"不分角色、统一喂记忆"或"不压缩交互图"的对照数字),其必要性靠 Takeaway② 的定性论证(基线缺 role-specific 故在 PDDL 掉点)。属"机制合理、未单独定量证明"项。【推断:依据=§5.4 消融只拆 insight/interaction 两块】
 
 - **关键机制直觉**:核心是"**把 MAS 协作历史按抽象层级拆开,按需双向取用**"。Query Graph 当索引中枢(拓扑检索比纯相似度准);向上取 insight 解决"战略层该怎么分工/避坑",向下取压缩交互解决"具体协作怎么走";role-specific 分发避免"一份记忆喂所有 agent"的错配(MAS 里 CEO/Thinker/Executor 各需不同记忆)。整套**无 RL、无梯度**,全靠 LLM 提示完成抽取/压缩/打分/更新。【原文 §4】
 
 - **实验与证据**:
   - 数据集:5 个 benchmark / 3 域——知识推理(**HotpotQA, FEVER**)、具身动作(**ALFWorld, SciWorld**)、博弈(**PDDL**)。
-  - MAS 框架:**AutoGen / DyLAN / MacNet** 三种;LLM backbone:**Qwen-2.5-7b / Qwen-2.5-14b(本地 Ollama)+ gpt-4o-mini(OpenAI API)**。embedding MiniLM。超参 M∈{2,3,4,5}、k∈{1,2}。
+  - MAS 框架:**AutoGen / DyLAN / MacNet** 三种;LLM backbone:**Qwen-2.5-7b / Qwen-2.5-14b(本地 Ollama)+ gpt-4o-mini(OpenAI API)**。embedding MiniLM。超参 \(M\in\{2,3,4,5\}\)、\(k\in\{1,2\}\)。
   - Baseline:单 agent 记忆(No-memory、Voyager、MemoryBank、Generative Agents)+ MAS 记忆(MetaGPT-M、ChatDev-M、MacNet-M)。
   - **关键发现①(RQ1,Table 1-3)**:G-Memory 在**所有域 × 所有 MAS 框架**一致涨点。最亮:Qwen-2.5-14b 下把 MacNet 在 ALFWorld 从 58.21% 提到 **79.10%(+20.89%)**;gpt-4o-mini 下各 MAS 平均都拿第一(如 AutoGen Avg 48.27→57.18)。
   - **关键发现②(RQ1 反例)**:**很多记忆基线在 MAS 上反而掉点**——Voyager/MemoryBank 把 AutoGen+PDDL 拉低 4.17%/1.34%;ChatDev-M 在 MacNet+SciWorld −2.32%。原因:缺 role-specific 支持、或记忆范围太窄(只存执行结果)。**这正反衬 G-Memory 三特性(role-specific cues / 高层 insight / 轨迹压缩)的必要性**——是全文很有说服力的论据。
-  - **关键发现③(RQ2 成本,Figure 3)**:G-Memory 高性能且 token 节制——PDDL+AutoGen 比 no-memory 提升 10.32%、仅多 1.4×10⁶ token;而 MetaGPT-M 多花 2.2×10⁶ token 才涨 4.07%。token 效率优于主流记忆设计。
+  - **关键发现③(RQ2 成本,Figure 3)**:G-Memory 高性能且 token 节制——PDDL+AutoGen 比 no-memory 提升 10.32%、仅多 \(1.4\times10^6\) token;而 MetaGPT-M 多花 \(2.2\times10^6\) token 才涨 4.07%。token 效率优于主流记忆设计。
   - **baseline 公平性**:同 backbone、同 MAS 框架,记忆机制为唯一变量,G-Memory 即插即用不改框架。较公平。【推断:依据=§5.1 设置 + 摘要"without any modifications"】
   - **看着强但需注意**:① 部分格子 G-Memory 非第一(如 Table 1 AutoGen+HotpotQA 35.67 仅略高);② PDDL 等绝对分仍低(20–28%),提升幅度大但天花板低;③ 全程**无 ground-truth-free 的鲁棒性分析**——状态 Ψ(Failed/Resolved)怎么判定、判错的影响未深究。【推断:依据=Table 1-3 数值 + 正文未述 Ψ 判定鲁棒性】
 
 - **假设与失效边界**:
   - 【原文·Limitation】只在 3 域 5 benchmark 验证,**更多样任务(如医疗 QA)未验证**,留作 future work。
-  - 【推断】整套依赖 LLM 完成 insight 蒸馏 / 交互图压缩(S_LLM)/ 相关性打分(R_LLM)/ role 效用评估(Φ)——**强依赖 backbone LLM 能力且带额外 LLM 调用成本**;弱 LLM 下抽取质量存疑(虽 Qwen-7b 上仍涨,但未做 LLM 能力梯度消融)。依据=§4 全部算子均 LLM 实现。
+  - 【推断】整套依赖 LLM 完成 insight 蒸馏 / 交互图压缩(\(S_{LLM}\))/ 相关性打分(\(R_{LLM}\))/ role 效用评估(\(\Phi\))——**强依赖 backbone LLM 能力且带额外 LLM 调用成本**;弱 LLM 下抽取质量存疑(虽 Qwen-7b 上仍涨,但未做 LLM 能力梯度消融)。依据=§4 全部算子均 LLM 实现。
   - 【推断】三层图**只增不删(无遗忘/淘汰机制)**——Insight/Query/Interaction 图随 episode 持续膨胀,长期检索成本与噪声未给规模分析。依据=§4.3 更新只做"加节点/加边/扩支撑集",无删除;related work 提到 MemoryBank 有 Ebbinghaus 遗忘曲线、但 G-Memory 自身未采用。
   - 【推断】Query Graph 边的语义关系怎么建未在正文展开(放附录),其质量直接影响拓扑检索。依据=§3 Eq.2 仅定义、未述构边算法。
 
@@ -78,7 +78,7 @@
 
 - ⑦ **开源代码 + 框架/harness**:**已开源** https://github.com/bingreeky/GMemory(已 `git ls-remote` 核验**真实可达**,main HEAD=7b581c5…)。harness:作为 **plug-and-play 模块**嵌入主流 MAS 框架 **AutoGen / DyLAN / MacNet**;embedding **all-MiniLM-L6-v2**;backbone Qwen-2.5-7b/14b(本地 Ollama)+ gpt-4o-mini(OpenAI API)。**无 RL 训练框架**(veRL/TRL/OpenRLHF 等均不涉及,纯推理时 LLM 提示驱动)。〔代码仓未 clone 核对文件级细节——待核 README/实现〕【原文 摘要, §5.1】
 
-- 💰 **资源/成本与可扩展性**:推理时方法、无训练成本。token:比主流记忆设计更省(Figure 3:PDDL+AutoGen 仅 +1.4×10⁶ token 换 +10.32%,优于 MetaGPT-M 的 +2.2×10⁶ 换 +4.07%)。隐性成本:每 episode 多次 LLM 调用(insight 蒸馏 / sparsifier / 相关性打分 / role 评估)。可扩展性隐患:三层图无遗忘机制,长期膨胀的检索/存储成本未量化。【原文 §5.3】
+- 💰 **资源/成本与可扩展性**:推理时方法、无训练成本。token:比主流记忆设计更省(Figure 3:PDDL+AutoGen 仅 \(+1.4\times10^6\) token 换 +10.32%,优于 MetaGPT-M 的 \(+2.2\times10^6\) 换 +4.07%)。隐性成本:每 episode 多次 LLM 调用(insight 蒸馏 / sparsifier / 相关性打分 / role 评估)。可扩展性隐患:三层图无遗忘机制,长期膨胀的检索/存储成本未量化。【原文 §5.3】
 
 - 🎯 **对"探索-巩固"idea 对标**:**支撑 + 可借组件,但偏 MAS 场景**。
   - *可借组件 1*:**三层抽象(细粒度轨迹→query 索引→高层 insight)+ 双向遍历**——为"巩固"提供了一个分层组织模板;TSRD 可借鉴"把 path-recovery 经验分层存:底层具体纠偏轨迹 / 顶层可泛化的'路径选择'原则",检索时按需取粒度。
@@ -89,7 +89,7 @@
 
 - 🔭 **开放问题/未来方向**:
   - 【原文】扩到更多样任务(如医疗 QA)以增强 soundness。
-  - 【推断】引入记忆遗忘/淘汰控规模;降低对 backbone LLM 的多次调用依赖;Ψ(成败)判定的鲁棒性;Query Graph 建边算法的系统研究;把"记忆内容进化"升级为"agent 策略/参数进化";结合 RL 学"何时调用/给哪个 agent 多少记忆"。依据=方法与实验局限。
+  - 【推断】引入记忆遗忘/淘汰控规模;降低对 backbone LLM 的多次调用依赖;\(\Psi\)(成败)判定的鲁棒性;Query Graph 建边算法的系统研究;把"记忆内容进化"升级为"agent 策略/参数进化";结合 RL 学"何时调用/给哪个 agent 多少记忆"。依据=方法与实验局限。
 
 - 🖼 **关键图 top-2**:
 

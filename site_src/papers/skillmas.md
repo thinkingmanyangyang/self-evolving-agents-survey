@@ -15,16 +15,16 @@
 
 ══ 第三层:怎么做 + 靠不靠谱 ══
 - **方法流水线**(一个 adaptation round,输入→输出,5 步;§2):
-  1. **Round State**:维护 Xr=(技能库 Lr,executor 集 Ar,Skill Utility 表 Qˢ,Executor Utility 表 Qᵃ,验证池 Pr,专家策略索引 Kr)。
-  2. **执行**:Tr=Exec(Xr),跑一批 episodes,每条 ξ 记录"任务/选中技能/路由的 executor/轨迹/已验证终局结果"。
-  3. **Utility Learning**(§2.2):从 verified traces 学两张效用表——Qˢ(s,τ)技能在任务类型 τ 上的效用、Qᵃ(a,τ)executor 在 τ 上的效用,用蒙特卡洛增量更新 Q←Q+α(R−Q),α=1/(1+N) 计数衰减(见过越多更新越小)。**关键规则**:检索只是提候选,**只有"被执行调用或轨迹支持"的技能才得正信用**(Sᵘˢᵉᵈ),纯被检索到不算——这是保守的操作性归因。
+  1. **Round State**:维护 \(Xr\)=(技能库 Lr,executor 集 Ar,Skill Utility 表 \(Qˢ\),Executor Utility 表 \(Qᵃ\),验证池 Pr,专家策略索引 Kr)。
+  2. **执行**:\(Tr=Exec(Xr)\),跑一批 episodes,每条 ξ 记录"任务/选中技能/路由的 executor/轨迹/已验证终局结果"。
+  3. **Utility Learning**(§2.2):从 verified traces 学两张效用表——\(Qˢ(s,τ)\)技能在任务类型 \(τ\) 上的效用、\(Qᵃ(a,τ)\)executor 在 \(τ\) 上的效用,用蒙特卡洛增量更新 \(Q←Q+α(R−Q)\),\(α=1/(1+N)\) 计数衰减(见过越多更新越小)。**关键规则**:检索只是提候选,**只有"被执行调用或轨迹支持"的技能才得正信用**(Sᵘˢᵉᵈ),纯被检索到不算——这是保守的操作性归因。
   4. **Retain**:从 Tr 过滤出最有用的 retained evidence set eTr(重复失败、near-miss、可复用成功、检索/执行不匹配);轻量、非学习控制器。
-  5. **耦合更新**:(a) **Skill Evolution**(§2.3)——把技能视为含"适用条件+步骤+失败 guard+验证检查"的 agent-native 包;成功轨迹出 motif,失败轨迹经 **bounded diagnosability** 映射为(主因 c、是否唯一可辨 u、修复标签 b∈{add-guard, reorder-step, tighten-retrieval, split-skill, handoff-to-structure, ∅}),仅当 u=1 且 b 属前四类才本地修;动作集{create, refine, prune, hold-in-pool, no-op},每簇每轮至多一次;新/大改技能进 Pr 验证池待后续证据。(b) **Evidence-Gated MAS Restructuring**(§2.4)——仅当 retained failures + Executor Utility 显示组织过载/分离差时才改 Ar;先把证据炼成诊断 artifact Fr,再由算子 Gr 输出{keep, add, merge/remove, modify}之一,每轮至多一次结构编辑;触发时迁移已验证技能、合并冗余技能归属、收窄 executor prompt。两类更新共同产出 Xr+1。
+  5. **耦合更新**:(a) **Skill Evolution**(§2.3)——把技能视为含"适用条件+步骤+失败 guard+验证检查"的 agent-native 包;成功轨迹出 motif,失败轨迹经 **bounded diagnosability** 映射为(主因 c、是否唯一可辨 u、修复标签 \(b∈\){add-guard, reorder-step, tighten-retrieval, split-skill, handoff-to-structure, \(∅\)}),仅当 \(u=1\) 且 b 属前四类才本地修;动作集{create, refine, prune, hold-in-pool, no-op},每簇每轮至多一次;新/大改技能进 Pr 验证池待后续证据。(b) **Evidence-Gated MAS Restructuring**(§2.4)——仅当 retained failures + Executor Utility 显示组织过载/分离差时才改 Ar;先把证据炼成诊断 artifact Fr,再由算子 Gr 输出{keep, add, merge/remove, modify}之一,每轮至多一次结构编辑;触发时迁移已验证技能、合并冗余技能归属、收窄 executor prompt。两类更新共同产出 Xr+1。
 - **逐组件必要性**:
   · 技能进化 vs MAS 重构耦合 → **Table 2 transplant stress test**:Full(94.0%)> 只技能进化+种子组织(68.7%)> 只重构+种子技能(50.0%);种子基线 76.1%。两个单侧变体都低于 Full,证明耦合必要。**但作者明确声明这不是 protocol-matched 因果分解、缺受控冻结目标重训消融**(诚实)。
   · Utility Learning 的"只给执行支持的技能信用" → 文中作为核心设计,但**无单独消融**隔离其贡献(作者承认缺多 seed 受控消融)。
   · 证据门控 → 体现在 τ-Bench:选中 checkpoint 保持单 executor 改善(43/74→51/74),强行加 preflight executor 反跌到 32/74(§4.2)——侧证"该不扩张时不扩张"的价值。【原文 §3.3/§4.1/§4.2】
-- **关键机制直觉**:α=1/(1+N) 的计数衰减学习率 = 让"新见到的(技能,任务类型)"全权更新(α=1),重复证据自动降权,**无需第二个优化器或动量项**——把"经验置信度"编码进步长。Utility 表是"已验证结果的经验摘要",不是收敛保证,任务分布/库/组织一变值就会动(§2.2)。bounded diagnosability 的"唯一主因 u=1 才修"= 避免对一条失败轨迹同时打多个补丁造成混乱。【原文 §2.2-2.3,直觉为【推断】】
+- **关键机制直觉**:\(α=1/(1+N)\) 的计数衰减学习率 = 让"新见到的(技能,任务类型)"全权更新(\(α=1\)),重复证据自动降权,**无需第二个优化器或动量项**——把"经验置信度"编码进步长。Utility 表是"已验证结果的经验摘要",不是收敛保证,任务分布/库/组织一变值就会动(§2.2)。bounded diagnosability 的"唯一主因 u=1 才修"= 避免对一条失败轨迹同时打多个补丁造成混乱。【原文 §2.2-2.3,直觉为【推断】】
 - **实验与证据**:数据集 = ALFWorld unseen(具身家务)、Lifelong Agent Bench OS Task(命令行)、τ-Bench Retail(零售对话);模型尽量用 **GPT-4o-mini**,τ-Bench 用 GPT-4.1-mini executor + GPT-4.1-2025-04-14 用户模拟器(**全闭源 API,不重训**)。**支撑核心主张的关键实验**=Table 1 + Table 2:Table 1 三 benchmark 均最高(ALFWorld 94.0 vs Traj-Bootstrap 93.0、OS 76.7 vs 70.0、Retail 70.2);Table 2 stress test 支撑"解耦会受损"。Table 3 任务族分解显示主增益来自 examine(5/18→17/18),说明加入"搜索/检查"专精修复了具体弱点而非平滑已强项。**baseline 公平性问题(重要)**:作者**反复强调 Table 1 是"contextual comparison 而非 protocol-matched leaderboard"**,ALFWorld 的 Direct LLM/ReAct/CDMem/Traj-Bootstrap 标 "Ref."(跨论文引用,协议可能漂移);故小幅度领先(如 94.0 vs 93.0)**不可当严格 SOTA**。【原文 §3.1-3.4】
 - **假设与失效边界**:【原文 Limitations】(i) 证据是 benchmark-local、protocol-dependent,绑定特定 harness/prompt/API/checkpoint 选择,**不可读作 domain-agnostic 估计**;(ii) **未隔离各组件因果贡献**(无统一多 seed 重跑/受控冻结目标消融/显著性检验);(iii) **archive 不含完整 token/延迟/成本核算**,效率与长程稳定性未充分刻画;(iv) 抽象掉大量底层轨迹记录,长程稳定性与失败模式审计只部分刻画。【推断】依赖任务能定义"task type τ"做效用条件化;强依赖 verifier 给二元/可信终局信号(无 verifier 的开放任务难用)。
 - **祛魅总结**:**硬货**=(i) 把"技能进化"与"MAS 重构"耦合这一系统级问题清晰形式化(adaptation decoupling),并给出"一份 verified-trace 证据面统一两类更新"的非参数框架;(ii) 三 benchmark + transplant stress test + 逐轮轨迹的过程证据,论证"单侧适应会脆";(iii) 计数衰减 α、bounded 动作集、验证池等工程细节扎实。**包装/需谨慎**=(i) **作者异常诚实**地把诸多东西标为"非主贡献/非 protocol-matched/缺消融"——这反过来意味着**实证强度有限**,Table 1 的领先不能当严格 SOTA 读;(ii) "co-evolution / self-evolving"措辞响亮,但本质是**规则驱动的离线批量编辑循环**,非梯度学习也非在线 per-step 进化;(iii) 无开源代码、无成本核算,可复现性与实用效率待证。作者整体**偏低估/克制**(用 "competitive" 而非 "SOTA"),不是高估。【推断,依据 §3.1/§6 Limitations】
@@ -33,7 +33,7 @@
 - 🎯 **机制速览 6 轴** [light]:
   | 维度 | 内容 |
   |---|---|
-  | 学什么信号 | 环境 **verified 终局结果**(verifier-backed,ALFWorld 二元 R∈{0,1})→ 转成 Skill/Executor Utility;retained traces(重复失败/near-miss/成功/不匹配)驱动编辑【原文 §2.1-2.2】 |
+  | 学什么信号 | 环境 **verified 终局结果**(verifier-backed,ALFWorld 二元 \(R∈\{0,1\}\))→ 转成 Skill/Executor Utility;retained traces(重复失败/near-miss/成功/不匹配)驱动编辑【原文 §2.1-2.2】 |
   | 改什么 | **技能库 + MAS 组织(executor 集/角色/职责边界)+ prompt(收窄 executor prompt)+ 效用表**;**不改模型参数** |
   | 何时改 | **离线批量**:以 "adaptation round" 为单位(跑一批 episodes→学效用→retain→耦合更新);非在线 per-step【原文 §2.1】 |
   | 免梯度? | **是**(完全非参数,无任何模型重训;更新靠蒙特卡洛效用 + 规则化 bounded 编辑) |

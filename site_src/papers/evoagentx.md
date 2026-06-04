@@ -5,7 +5,7 @@
 ══ 第一层:一眼看懂 [light] ══
 
 - 🟦 **TL;DR**:这是一个**开源平台**(不是一个新算法),专门解决"多 Agent 系统(MAS)搭起来全靠手工配、配完不会自己变强"两件事。你只给一句**高层目标描述**,它就自动**生成**一个多 Agent 工作流(谁干啥、怎么连),然后在"演化层(evolving layer)"里**把三个现成的优化算法(TextGrad / AFlow / MIPRO)塞进同一套框架**,迭代地改 agent 的 **prompt、工具配置、工作流拓扑**,用内置 benchmark 自动评测打分、反馈再改。它把"造 MAS → 跑 → 评 → 进化优化"做成一条端到端流水线。【原文 Abstract、§3、Fig.1】
-- **最巧的一步(抽掉就垮)**:**把"workflow 表示成有向图 W=(V,E)+ 把异构优化器统一成 \(X(t+1)=O(X(t), E)\) 同一接口"**。所有优化器(TextGrad 改 prompt、AFlow 改拓扑、MIPRO 调指令/示例)都被抽象成"读评测反馈 E、输出新一代配置"的算子 O,作用在 prompt / θ / 图结构 / 记忆四个对象上(公式 3–6)。抽掉这个统一抽象,EvoAgentX 就退回成"把几个互不兼容的优化脚本拼在一起",失去"在同一平台上一致地应用/比较"的核心卖点(§2.2 痛点正是"fragmented toolchains")。
+- **最巧的一步(抽掉就垮)**:**把"workflow 表示成有向图 \(W=(V,E)\) + 把异构优化器统一成 \(X(t+1)=O(X(t), E)\) 同一接口"**。所有优化器(TextGrad 改 prompt、AFlow 改拓扑、MIPRO 调指令/示例)都被抽象成"读评测反馈 E、输出新一代配置"的算子 O,作用在 prompt / θ / 图结构 / 记忆四个对象上(公式 3–6)。抽掉这个统一抽象,EvoAgentX 就退回成"把几个互不兼容的优化脚本拼在一起",失去"在同一平台上一致地应用/比较"的核心卖点(§2.2 痛点正是"fragmented toolchains")。
 
 ---
 
@@ -26,13 +26,13 @@
 ### 方法流水线(五层模块化架构,Fig.1)——输入"高层目标" → 输出"持续优化的 MAS"
 1. **Basic Component Layer(基础层)**:配置管理(YAML/JSON 校验)、日志、文件/状态处理、存储(缓存+checkpoint,保证可复现);通过 **OpenRouter / LiteLLM** 接入各家 LLM。这是"水电煤"。
 2. **Agent Layer(Agent 层)**:每个 Agent 形式化为 \(a_i = ⟨LLM_i, Mem_i, {Act_i^(j)}⟩\)(公式1)——一个 LLM + 记忆模块 + 一组动作(每个动作 = prompt 模板 + 输入输出格式 + 可选工具集成)。
-3. **Workflow Layer(工作流层)**:工作流建模为**有向图 W=(V,E)**(公式2)。节点 = WorkFlowNode(任务 + 输入输出 + 关联 Agent + 状态 PENDING/RUNNING/COMPLETED/FAILED),节点可装"一组 Agent(运行时动态选最优动作)"或"ActionGraph(显式操作序列)";边 = 任务依赖/执行序/优先级权重。提供两种:**WorkFlowGraph**(灵活,自定义节点/边/条件分支/并行)与 **SequentialWorkFlowGraph**(简化,自动按 I/O 依赖推图,免手工连)。
+3. **Workflow Layer(工作流层)**:工作流建模为**有向图 \(W=(V,E)\)**(公式2)。节点 = WorkFlowNode(任务 + 输入输出 + 关联 Agent + 状态 PENDING/RUNNING/COMPLETED/FAILED),节点可装"一组 Agent(运行时动态选最优动作)"或"ActionGraph(显式操作序列)";边 = 任务依赖/执行序/优先级权重。提供两种:**WorkFlowGraph**(灵活,自定义节点/边/条件分支/并行)与 **SequentialWorkFlowGraph**(简化,自动按 I/O 依赖推图,免手工连)。
 4. **Evolving Layer(演化层,核心)**:三个优化器,统一"读反馈 E → 出下一代"接口:
    - **Agent optimizer**:\((Prompt^(t+1), θ^(t+1)) = O_agent(Prompt^(t), θ^(t), E)\)(公式3),用 **TextGrad + MIPRO** 改 prompt 模板/工具配置/动作策略(梯度式 prompt 调优 + ICL + 偏好引导精炼)。
    - **Workflow optimizer**:\(W^(t+1) = O_workflow(W^(t), E)\)(公式4),用 **SEW + AFlow** 重排节点、改依赖、探索替代执行策略(受任务性能信号 + 收敛准则指引)。
    - **Memory optimizer**:\(M_i^(t+1) = O_memory(M_i^(t), E)\)(公式5),目标做选择性保留/动态剪枝/优先级检索——**原文明示"remains under active development"(还在开发中)**。
 5. **Evaluation Layer(评测层)**:\(P = T(W, D)\)(公式6),两种评测器——**task-specific evaluator**(对 ground-truth 算 F1/pass@1/solve rate,内置 HotPotQA/MBPP/MATH 等)+ **LLM-based evaluator**(LLM 做定性/一致性/动态准则评判)。
-   - **整条闭环 = 目标描述→自动生成 W→执行→评测层出 E→演化层据 E 改 prompt/拓扑/(记忆)→再评**,这正是综述锚里 \(f(Π,τ,r)=Π′\) 的工程落地:**改的是 Π 的 Γ(拓扑)/C(prompt+memory)/W(工具配置),不改 ψ(LLM 权重)**。
+   - **整条闭环 = 目标描述→自动生成 W→执行→评测层出 E→演化层据 E 改 prompt/拓扑/(记忆)→再评**,这正是综述锚里 \(f(Π,τ,r)=Π′\) 的工程落地:**改的是 \(Π\) 的 \(Γ\)(拓扑)/\(C\)(prompt+memory)/\(W\)(工具配置),不改 \(ψ\)(LLM 权重)**。
 - **逐组件必要性 & 消融**:本文是 **demo/system 论文,无消融实验**。各层"必要性"靠架构论证而非 ablation 证明。Memory optimizer **自承未完成**,因此"记忆进化"这一支在本版本里基本是占位。【推断:论文未给任何去层/去优化器的对照,无法证明每层不可或缺,标出】
 
 ### 关键机制/直觉
@@ -63,7 +63,7 @@
 - 🎯 **机制速览 6 轴** [light]:
   | 学什么信号 | 改什么 | 何时改 | 免梯度? | 记忆-技能生命周期 | 防遗忘机制 |
   |---|---|---|---|---|---|
-  | **环境/任务 reward**(benchmark 指标 F1/pass@1/solve)+ **LLM-judge 文本评测**(评测层 E) | **prompt + 工具配置 + workflow 拓扑 Γ**(+ 记忆 M,未完成);**不改 LLM 参数 ψ** | **离线批量**(每代跑完整评测→更新→再跑,inter-task 的优化循环) | **是**(LLM 冻结;优化全在 prompt/图/配置层) | 记忆支:selective retention / dynamic pruning / priority retrieval(公式5)——**但 active development,未实装** | **无**(纯优化循环,不涉及参数遗忘;拓扑/prompt 迭代靠评测分择优,无显式防遗忘机制) |
+  | **环境/任务 reward**(benchmark 指标 F1/pass@1/solve)+ **LLM-judge 文本评测**(评测层 E) | **prompt + 工具配置 + workflow 拓扑 \(Γ\)**(+ 记忆 \(M\),未完成);**不改 LLM 参数 \(ψ\)** | **离线批量**(每代跑完整评测→更新→再跑,inter-task 的优化循环) | **是**(LLM 冻结;优化全在 prompt/图/配置层) | 记忆支:selective retention / dynamic pruning / priority retrieval(公式5)——**但 active development,未实装** | **无**(纯优化循环,不涉及参数遗忘;拓扑/prompt 迭代靠评测分择优,无显式防遗忘机制) |
 
 - ⑦ **开源代码 + 框架/harness**:**开源,且本身就是一个框架/平台**。GitHub: `https://github.com/EvoAgentX/EvoAgentX`(MIT,活跃多分支)。**使用框架 = 自研平台(EvoAgentX 本身)**,非建于 veRL/TRL/OpenRLHF 之上;LLM 接入走 **LiteLLM + OpenRouter**;**演化层收编的优化器(已 clone 仓库 `resource/repos/evoagentx` 证实,30M)**:`textgrad_optimizer.py / aflow_optimizer.py / mipro_optimizer.py / sew_optimizer.py / evoprompt_optimizer.py / map_elites_optimizer.py`(比论文正文多出 SEW/EvoPrompt/MAP-Elites 三个)。仓库结构含 `agents/ workflow/ optimizers/ evaluators/ memory/ rag/ tools/ benchmark/`,与论文五层对应。**已完整 clone(30M,远低于 500MB 上限,无 LFS 大文件)。**【原文 §3 + 仓库实测】
 - 💰 **资源/成本与可扩展性**:原文未给具体算力/成本数字。【推断,依据机制】成本主要在**评测**:每代优化需对候选 workflow 跑整套 benchmark 执行(LLM 调用),候选数 × 执行长度决定 API 成本;无 GPU 训练成本(不调参)。可扩展性:模块化 + LiteLLM 多模型接入利于横向扩,但 workflow 评测开销是瓶颈(综述锚提到 Agentic Predictor 类轻量预测器是缓解方向,本文未用)。
@@ -77,4 +77,4 @@
   - ![图2-在GAIA上优化Open Deep Research与OWL两个MAS的逐级性能提升](../figures/evoagentx_fig2.png)
     这是**原文 Figure 2**(p.6)。选它因为它是**最能支撑"对真实系统有效"主张的核心结果图**:展示把 EvoAgentX 套到两个真实开源 MAS(Open Deep Research / OWL)上、在 GAIA L1/L2/L3 各级的 accuracy 提升(总体 +18~20%)。它比 Table 2 的合成基准更有说服力,也暴露了 L3 "+100%" 的小样本基数问题(祛魅点)。
 
-【三标注小结】方法五层/公式/Table 2 数字/GAIA 增益/memory optimizer 未完成/未来点名 DGM 均为**【原文】**;"baseline 偏弱、平台独立贡献未隔离""失效边界(无 GT 跑偏/不碰参数上限/评测成本)""属 proto 弱自进化""可借 O(X,E) 接口"为**【推断】**(各附依据);仓库框架与优化器清单为**仓库实测**;无未核实关键事实。
+【三标注小结】方法五层/公式/Table 2 数字/GAIA 增益/memory optimizer 未完成/未来点名 DGM 均为**【原文】**;"baseline 偏弱、平台独立贡献未隔离""失效边界(无 GT 跑偏/不碰参数上限/评测成本)""属 proto 弱自进化""可借 \(O(X,E)\) 接口"为**【推断】**(各附依据);仓库框架与优化器清单为**仓库实测**;无未核实关键事实。

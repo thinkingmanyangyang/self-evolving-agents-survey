@@ -32,7 +32,7 @@
   1. **❶ 组件可观测 / NexAU 基底**(§3.1):harness H 实例化在 **NexAU 框架**上,把七类正交组件暴露成固定挂载点的显式文件——**系统提示、工具描述、工具实现、中间件(middleware)、技能、子 agent 配置、长期记忆**。松耦合(加 middleware 不用改 prompt)。每个逻辑编辑 = workspace git 上一次 commit,免费得到文件级 diff 与回滚粒度。**种子 H0 故意极简**(只有一个 shell 执行工具,无 middleware/技能/子 agent)——若种子已为目标 benchmark 调过,会污染后续每个编辑的归因。
   2. **❷ 经验可观测 / Agent Debugger**(§3.2):对每个任务用 harness H 生成 k 条 trace(含可操作的失败信号但散在百万 token 里)。用 **Agent Debugger** 框架把轨迹当成"可导航的文件式环境"(每条消息一个文件、用通用 shell/脚本工具访问),同 query 的 trace 放一个环境,让 debugger 分析失败根因/成功模式 → 写成**每任务分析报告**(含 pass/fail 状态),再聚合成 benchmark 级 overview 当每轮入口。原始 trace 也以文件提供(raw + 轻处理)支持渐进式披露省 token。把 ~10M token 压到 ~10K token 级证据。
   3. **❸ 决策可观测 / Evolve Agent**(§3.3):每轮读分层证据语料,决定增/改/删哪些组件、应用编辑、记录每个编辑的推理。两条约束实现"决策可观测":**(a) 可控性**——Evolve Agent 只能写 harness workspace 内,runs 目录/tracer/verifier/LLM 配置只读、种子系统提示标记不可删(堵死"关掉 verifier / 换模型 / 偷偷加推理预算"等捷径,保证收益都归因于 harness 编辑);**(b) 证据驱动 + 带预测的 manifest**——每个编辑附 manifest 条目:命名失败证据、推断根因、目标修复、**预测影响(含预期修复 + 风险回归)**;下一轮把"预测修复集/预测回归集"与"观测到的任务级 delta"求交,产出每编辑判决(verdict),无效则回滚。
-  - **额外**:每任务 k≥2 次 rollout(每任务带 pass-rate 信号、稳住 pass@1);归因在蒸馏之前跑(判决落进证据语料、把上轮 manifest 绑成契约);第 1 轮并行跑一个 one-shot explore agent 从 NexAU 源码 + 公开 coding-agent 参考播种少量可复用技能(无特殊保护,第 2 轮起可被增删改)。
+  - **额外**:每任务 \(k≥2\) 次 rollout(每任务带 pass-rate 信号、稳住 pass@1);归因在蒸馏之前跑(判决落进证据语料、把上轮 manifest 绑成契约);第 1 轮并行跑一个 one-shot explore agent 从 NexAU 源码 + 公开 coding-agent 参考播种少量可复用技能(无特殊保护,第 2 轮起可被增删改)。
 - **逐组件必要性**(组件级消融 Table 3,每行只把一个 AHE 组件换进 NexAU0 种子):【原文 §4.4.1】
   - **+ memory only**:69.7→**75.3%**(Hard 51.7→63.3,加了 12 条边界教训,在 Hard 上甚至超过 full AHE)。
   - **+ tool only**:→**73.0%**(变成 1364 行 shell、自动从命令附近文件浮现契约提示;Medium 上离 full AHE 仅 0.9pp)。
@@ -69,7 +69,7 @@
 - **框架/harness**:【原文 §3.1, §4.1】底层 harness 框架 = **NexAU**(Nex-AGI 的通用 agent 框架,github.com/nex-agi/NexAU,引[23,37]);轨迹分析用 **Agent Debugger** 框架(引[17],dawning-road.github.io/blog/agent-debugger)。三 role agent 基座 = **GPT-5.4 high**(进化时);跨模型测 qwen-3.6-plus / gemini-3.1-flash-lite / deepseek-v4-flash。**无 RL 训练框架(veRL/TRL/OpenRLHF 等)**——完全不训模型,属"自研 harness 工程 + 现成 agent 框架(NexAU)"类。
 
 ### 💰 资源/成本与可扩展性
-- 【原文 §4.2】一次 10 轮 AHE campaign(Terminal-Bench 2 全 89 任务、每任务 k≥2 rollout、单任务超时 1h)约 **32 小时**完成。【原文 §4.3, Table 2】产出物显著省 token:冻结 harness 在 SWE-bench-verified 比种子省 **12%** token、比 ACE 省 32%、比 TF-GRPO 省 21%(因为把行为编码进 tools/middleware/memory,避免 prompt-only 每次调用重推导)。
+- 【原文 §4.2】一次 10 轮 AHE campaign(Terminal-Bench 2 全 89 任务、每任务 \(k≥2\) rollout、单任务超时 1h)约 **32 小时**完成。【原文 §4.3, Table 2】产出物显著省 token:冻结 harness 在 SWE-bench-verified 比种子省 **12%** token、比 ACE 省 32%、比 TF-GRPO 省 21%(因为把行为编码进 tools/middleware/memory,避免 prompt-only 每次调用重推导)。
 - 【原文 §3.2】Agent Debugger 把 ~10M raw token 蒸成 ~10K token 级证据,靠渐进式披露省 token。【待核】**未给出总 API 费用/GPU 时的金额**;进化期需大量 GPT-5.4 high 的 rollout + 三 role agent 调用,绝对成本应不低("原文未量化美元成本")。
 
 ### 🎯 对"探索-巩固"idea 对标 [light]

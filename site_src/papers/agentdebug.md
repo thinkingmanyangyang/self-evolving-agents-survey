@@ -27,10 +27,10 @@
 ══ 第三层:怎么做 + 靠不靠谱 ══
 
 - **方法流水线**(Algo 1,AgentDebug 推理过程,输入失败轨迹 τ → 输出纠正后轨迹 τ* 或 Failure):
-  1. **Stage 1 — 细粒度分析(MapToAET)**:对每步 t、每模块 m∈{mem,plan,refl,act},映射到一个 AgentErrorTaxonomy 错误类型,得到"模块级错误画像";若轨迹本就成功则直接返回。
+  1. **Stage 1 — 细粒度分析(MapToAET)**:对每步 \(t\)、每模块 \(m∈\{mem,plan,refl,act\}\),映射到一个 AgentErrorTaxonomy 错误类型,得到"模块级错误画像";若轨迹本就成功则直接返回。
   2. **Stage 2 — Critical Error Detection**:在已成功则跳过;否则**逐步做反事实测试**——在每步替换一个修正动作、看 rollout 是否会成功;**critical error = 最早的、其修正能直接防止最终失败的那一步** \(t* = min(T*)\);找不到则返回 Failure。
-  3. **Stage 3 — 迭代 debug + 针对性反馈**:对 t* 生成"指明错误类型 + 可操作指导"的反馈 φ,agent **从 t* 重新 rollout**(\(ReRollout(τ, t*, φ)\));仍失败则 `UpdateFeedback` 细化反馈再来,最多 I 次(实现 N=5)。【原文 §3.2, Algo 1】
-  - **AgentErrorBench 构建**(Fig 2 pipeline):收 >500 失败轨迹做人工分析立 taxonomy → 精选 200 条(ALFWorld 100 / WebShop 50 / GAIA 50)→ 10 位专家在 decision-step 级标"错误类型 + 最小根因集"(强调标**最小根因集**而非穷举表面错),三轮 pilot 校准,Cohen's κ=0.55(substantial)。【原文 §2.2】
+  3. **Stage 3 — 迭代 debug + 针对性反馈**:对 t* 生成"指明错误类型 + 可操作指导"的反馈 \(φ\),agent **从 t* 重新 rollout**(\(ReRollout(τ, t*, φ)\));仍失败则 `UpdateFeedback` 细化反馈再来,最多 I 次(实现 N=5)。【原文 §3.2, Algo 1】
+  - **AgentErrorBench 构建**(Fig 2 pipeline):收 >500 失败轨迹做人工分析立 taxonomy → 精选 200 条(ALFWorld 100 / WebShop 50 / GAIA 50)→ 10 位专家在 decision-step 级标"错误类型 + 最小根因集"(强调标**最小根因集**而非穷举表面错),三轮 pilot 校准,Cohen's \(κ=0.55\)(substantial)。【原文 §2.2】
 
 - **逐组件必要性 / 消融**(§5.1,Fig 7):
   - *Max attempts*:✔。增加重跑次数稳定涨,小模型(GPT-4o-mini)涨幅尤大(Fig 7a:21→30→41→48→55)。
@@ -45,7 +45,7 @@
   - **支撑核心主张的关键实验**(检测,Table 1):AgentDebug 平均 Step 45.0% / S+M 31.3% / **All-Correct 24.3%**,对比 Direct Prompting(28.0/10.0/0.3)、Brute Force(12.0/4.3/0.0)、Binary Search(18.7/8.0/0.3);GAIA 上 Step 几乎翻倍(58 vs 30)、All-Correct 翻三倍(38 vs 12)。
   - **下游证据**(Fig 5/6):ALFWorld 三 backbone 大幅提升(见上),且**小模型相对收益最大**;GAIA/WebShop 相对最强 baseline(Self-Refine、Best-of-N)最高 +26%。**公平性**:所有 baseline 的 max attempts 按**总 token 用量**对齐 AgentDebug → 收益归因于"定向纠错"而非更多算力。【原文 §4.2】
   - *baseline 公平性*:token 预算对齐这点做得扎实(明确写了"matched by total token usage");检测对比里 Brute Force/Binary Search 是合理的"搜索定位"对照。
-  - *"看着强但没回答核心"的隐患*:① **检测器强依赖 GPT-4.1**(Fig 7b 换弱模型暴跌)→ 方法的"诊断智能"很大程度外包给一个强闭源模型,泛化到弱 backbone 存疑;② AgentErrorBench 只 200 条、κ=0.55(substantial 但非高度一致),GAIA/WebShop 各仅 50 条,样本偏小;③ All-Correct 绝对值仍只 24.3%,"严格三元组全对"其实远未解决。【推断:依据=Fig7b + §2.2 规模/κ + Table1 绝对值】
+  - *"看着强但没回答核心"的隐患*:① **检测器强依赖 GPT-4.1**(Fig 7b 换弱模型暴跌)→ 方法的"诊断智能"很大程度外包给一个强闭源模型,泛化到弱 backbone 存疑;② AgentErrorBench 只 200 条、\(κ=0.55\)(substantial 但非高度一致),GAIA/WebShop 各仅 50 条,样本偏小;③ All-Correct 绝对值仍只 24.3%,"严格三元组全对"其实远未解决。【推断:依据=Fig7b + §2.2 规模/\(κ\) + Table1 绝对值】
   - **⚠ 一处文本内部不一致(待核)**:§3.2 Stage 2 标题写 "Critical Error Detection via **Counterfactuals**"(逐步替换修正动作做反事实测试);但 **Algorithm 1 的 Stage 2 注释写 "via LLM (no rollout/counterfactuals)"**(直接让 LLM 在打好标的画像上判 critical step,不做 rollout 反事实)。两处描述矛盾——可能正文 Stage 2 是"理想/人工标注版本",而 Algo 1 的推理实现走"LLM 直接判定"以省算力。【待核:依据=§3.2 正文 vs Algo 1 注释直接冲突,需查附录 prompt/实现确认实际跑的是哪种】
 
 - **假设与失效边界**:

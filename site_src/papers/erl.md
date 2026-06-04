@@ -5,7 +5,7 @@
 
 ══ 第一层：一眼看懂 [light] ══
 
-- 🟦 **TL;DR**：让 LLM Agent 在新环境里"越用越熟"，但**不微调权重、也不靠多次重试**。做法极简两步：① **反思生成启发式（heuristic）**——每做完一个任务（拿到成功/失败的二值反馈），让 agent 对自己的轨迹做"事后复盘"，产出一条带【触发条件 + 推荐动作】的结构化经验（如"给日历参会者发邮件前，先用 Contacts 工具把人名解析成邮箱再调 email API"），存进一个持久 heuristic 池；② **检索增强执行**——遇到新任务时，让 LLM 给池里每条启发式按相关性打分、取 **top-k 注入 system prompt** 指导执行。在 Gaia2 长程 agent 基准上，比 ReAct 基线 **+7.8%（56.1% vs 48.3%）**，且**主要提升的是"可靠性"（pass^3）**而非新解出的任务。【原文 Abstract/§2/§3】
+- 🟦 **TL;DR**：让 LLM Agent 在新环境里"越用越熟"，但**不微调权重、也不靠多次重试**。做法极简两步：① **反思生成启发式（heuristic）**——每做完一个任务（拿到成功/失败的二值反馈），让 agent 对自己的轨迹做"事后复盘"，产出一条带【触发条件 + 推荐动作】的结构化经验（如"给日历参会者发邮件前，先用 Contacts 工具把人名解析成邮箱再调 email API"），存进一个持久 heuristic 池；② **检索增强执行**——遇到新任务时，让 LLM 给池里每条启发式按相关性打分、取 **top-k 注入 system prompt** 指导执行。在 Gaia2 长程 agent 基准上，比 ReAct 基线 **+7.8%（56.1% vs 48.3%）**，且**主要提升的是"可靠性"（\(\text{pass}^3\)）**而非新解出的任务。【原文 Abstract/§2/§3】
 
 - **最巧的一步**：**从"单次尝试(single-attempt)"轨迹就提炼可迁移启发式**（§2 Heuristic generation + §1）。抽掉这一步（即退回 ExpeL/AutoGuide 那种"每个任务要反复重试 rollout 凑成功/失败对比对"），方法在真实部署里就不可用——因为现实中任务往往**不能重试**。为什么是它：这正是 ERL 相对最近邻方法的**唯一关键差异**——把"学习"从"需要多次 rollout 的对比学习"降到"一次执行 + 一次反思"，使经验积累**廉价、可持续、贴合真实部署**。【原文 §1 末段对比 ExpeL/AutoGuide "require multiple rollouts per task...breaks down in practical deployment"】
 
@@ -41,18 +41,18 @@
 - **关键机制/公式（直觉）**：**全程无训练、无梯度、无公式**——核心机制是"**结构化反思把一次经历压成带触发条件的 if-then 规则**"+"**LLM 当 reranker 做语义+错误模式双重相关性筛选**"。直觉上比 embedding 检索强的原因：embedding 只匹配"任务/工具相似"（如日历任务召回所有日历场景），**但不会优先匹配"相似错误模式"**；LLM ranker 能读懂 guideline 内容里讲的是哪类 error，从而选到真正能防错的经验（附录 C.2 明述）。附录 Fig7 给了一个生动证据：从"重排日历事件忘删原事件"的失败学到"先建新事件再删原事件"的安全规程，agent 在一个**结构相似但不同（替换事件而非重排）**的新任务上**主动复用该规则**。【原文 §3 / 附录 C.2 / 附录 F Fig7】
 - **实验与证据**：
   - 主基准 **Gaia2**（Froger 2025，ARE 平台上的模拟移动环境，12 app / 101 工具）的 **Search + Execution** split。巧妙利用 Gaia2 的 **universe（隔离数据分区，同工具但数据完全不相交）**：在 **8 个 universe 累积启发式（112 exec / 132 search 任务），在 2 个 held-out universe（48/28 任务）评测** → **无知识污染**，且贴合"工具固定、数据持续演化"的真实部署。backbone = **GPT-5-mini**（检索用 GPT-5.2）。【原文 §3 / 附录 B Table2】
-  - **支撑核心主张的关键实验**：① **Fig2** ERL 56.1% 总体 vs ReAct 48.3%（+7.8%）vs ExpeL 50.9% vs AutoGuide 50.8%，两 split 都涨（Exec +8.3%、Search +7.1%）。② **Fig3** ERL 主要提升 **pass^3（全 3 次都成功，Exec +8.3%、Search +10.6%）**，pass@3（至少 1 次成功）提升小 → **核心价值是可靠性/一致性而非扩能力边界**。③ 跨基准佐证：**τ²-bench**（Airline/Retail/Telecom 客服）总体 0.380 vs 0.367，Airline/Retail 涨且 pass^3 涨、Telecom 跌（附录 A Table1）。【原文 §3 Fig2/Fig3 + 附录 A】
+  - **支撑核心主张的关键实验**：① **Fig2** ERL 56.1% 总体 vs ReAct 48.3%（+7.8%）vs ExpeL 50.9% vs AutoGuide 50.8%，两 split 都涨（Exec +8.3%、Search +7.1%）。② **Fig3** ERL 主要提升 **\(\text{pass}^3\)（全 3 次都成功，Exec +8.3%、Search +10.6%）**，pass@3（至少 1 次成功）提升小 → **核心价值是可靠性/一致性而非扩能力边界**。③ 跨基准佐证：**τ²-bench**（Airline/Retail/Telecom 客服）总体 0.380 vs 0.367，Airline/Retail 涨且 \(\text{pass}^3\) 涨、Telecom 跌（附录 A Table1）。【原文 §3 Fig2/Fig3 + 附录 A】
   - **baseline 公平性**【推断+原文】：所有方法**同用 GPT-5-mini 同 ReAct scaffold**，ExpeL/AutoGuide 按原实现复现（附录 B 给了 Reflexion 3 次重试、L=3、Qwen3-Embedding 等细节）——**对比相当公平**。一个细节【待核】：ERL 的**检索 ranker 用 GPT-5.2**（比 agent backbone GPT-5-mini 更强，Table2），而 ExpeL/AutoGuide 的检索/选择用 GPT-5-mini——检索器能力不完全对齐，ERL 的检索优势可能部分来自更强 ranker。【依据=附录 B Table2 模型分配表，generation 用 5-mini 但 retrieval 用 5.2】
-  - **"看着强但需注意"的点**【推断】：(a) 这是**Workshop 短文**，主基准只有 Gaia2 两 split + 2 个测试 universe（48+28=76 任务），样本量小、方差未充分报告。(b) **Telecom 上 pass^3 掉到 0**，暴露 dual-control/组合任务上启发式匹配失效（附录 A）。【依据=附录 A Table1 Telecom 列】
+  - **"看着强但需注意"的点**【推断】：(a) 这是**Workshop 短文**，主基准只有 Gaia2 两 split + 2 个测试 universe（48+28=76 任务），样本量小、方差未充分报告。(b) **Telecom 上 \(\text{pass}^3\) 掉到 0**，暴露 dual-control/组合任务上启发式匹配失效（附录 A）。【依据=附录 A Table1 Telecom 列】
 - **假设与失效边界**：
   - 【原文】**需二值 reward 信号**：无 reward 时靠自评（70% 准）、性能下滑（附录 C.2）。
   - 【原文】**固定工具集 + 演化数据**假设：universe 设计假定工具不变、只数据变；跨工具集迁移未测。【原文 §3】
   - 【原文】**dual-control / 组合任务失效**：Telecom（用户也有工具、随机 persona、可变设备态 + 子任务组合爆炸）上 ERL 反伤——启发式难匹配特定子任务组合、且捕捉不了用户协调策略（附录 A）。
   - 【原文】**iterative 变体泛化更差**：被引导轨迹产生的启发式更窄、更不可迁移，且 agent 遇到的失败模式变少→错过新任务会触发的"naive 错误"（附录 E）。
-  - 【推断】**池规模扩展性未解**：作者自承未来要解"冲突 guideline + 维持检索质量 + 池扩大"；当前 k≤20 且 LLM ranker 在 k>20 时低效（附录 C.2），大池下检索质量存疑。【依据=§4 + 附录 C.2/G 提"two-stage embedding+LLM rerank" 留待 future】
+  - 【推断】**池规模扩展性未解**：作者自承未来要解"冲突 guideline + 维持检索质量 + 池扩大"；当前 \(k≤20\) 且 LLM ranker 在 \(k>20\) 时低效（附录 C.2），大池下检索质量存疑。【依据=§4 + 附录 C.2/G 提"two-stage embedding+LLM rerank" 留待 future】
 - **祛魅总结**：
-  - **真贡献（硬货）**：① **单次尝试反思**这一点是真正的实用性突破——把经验学习从"需重试"解放到"一次执行即可"，对不可重试的真实 agent 部署很有意义。② **干净的对照实验**揭示三条可复用规律：启发式 > 原始轨迹（即便控 token）、LLM 检索 > embedding/随机、失败启发式利好 Search / 成功启发式利好 Execution。③ **pass^3 视角**——明确区分"扩能力(pass@3)"与"提可靠性(pass^3)"，并指出 ERL 主要贡献后者，诚实且有洞察。④ **无知识污染的 universe 评测设计**值得借鉴。⑤ 附录给全 prompt/算法/示例，可复现性叙述好。
-  - **包装/营销成分**【推断】：(a) 方法**技术上极朴素**（反思 prompt + LLM rerank + 注入 system prompt），新颖性主要在"single-attempt + 选择性检索"的组合定位，而非机制创新。(b) "+7.8%" 的绝对增益**主要体现在 pass^3（可靠性）**，pass@3 提升很小——标题"self-improving"中的"improve"更偏"更稳"而非"更强"，作者已诚实点明但摘要读者易高估。(c) **未开源代码**（见⑦），可复现性靠附录 prompt 自行重建。(d) ranker 用更强的 GPT-5.2 可能稀释了"方法本身"的功劳。整体**贡献真实但属增量**，定位清晰、实验诚实，是一篇"小而扎实"的 workshop 工作。【依据=Fig3 pass^3 vs pass@3 + 附录 B 模型表 + 全文无代码链接】
+  - **真贡献（硬货）**：① **单次尝试反思**这一点是真正的实用性突破——把经验学习从"需重试"解放到"一次执行即可"，对不可重试的真实 agent 部署很有意义。② **干净的对照实验**揭示三条可复用规律：启发式 > 原始轨迹（即便控 token）、LLM 检索 > embedding/随机、失败启发式利好 Search / 成功启发式利好 Execution。③ **\(\text{pass}^3\) 视角**——明确区分"扩能力(pass@3)"与"提可靠性(\(\text{pass}^3\))"，并指出 ERL 主要贡献后者，诚实且有洞察。④ **无知识污染的 universe 评测设计**值得借鉴。⑤ 附录给全 prompt/算法/示例，可复现性叙述好。
+  - **包装/营销成分**【推断】：(a) 方法**技术上极朴素**（反思 prompt + LLM rerank + 注入 system prompt），新颖性主要在"single-attempt + 选择性检索"的组合定位，而非机制创新。(b) "+7.8%" 的绝对增益**主要体现在 \(\text{pass}^3\)（可靠性）**，pass@3 提升很小——标题"self-improving"中的"improve"更偏"更稳"而非"更强"，作者已诚实点明但摘要读者易高估。(c) **未开源代码**（见⑦），可复现性靠附录 prompt 自行重建。(d) ranker 用更强的 GPT-5.2 可能稀释了"方法本身"的功劳。整体**贡献真实但属增量**，定位清晰、实验诚实，是一篇"小而扎实"的 workshop 工作。【依据=Fig3 \(\text{pass}^3\) vs pass@3 + 附录 B 模型表 + 全文无代码链接】
 
 ══ 结构化抽取 ══
 
@@ -66,11 +66,11 @@
   - **使用框架/harness（明确）**：**无训练框架**（纯 prompt/检索，零参数更新，故不涉及 veRL/TRL/OpenRLHF/LLaMA-Factory 等）。运行平台 = **ARE（Agents Research Environments, Froger 2025）** 的 Gaia2 默认 **ReAct scaffold**;backbone agent = **GPT-5-mini（gpt-5-mini-2025-08-07，官方 OpenAI API + flex processing）**;启发式生成 = GPT-5-mini;**启发式检索 ranker = GPT-5.2（gpt-5.2-2025-12-11）**;embedding 检索基线 = **Qwen3-Embedding-0.6B**;评测 judge = GPT-5-mini。【原文 §3 / 附录 B Table2 / 附录 D Table4】
   - 可复现性：靠附录 G 的**完整生成/检索 prompt（Fig8/Fig9）**与附录 E 的 **Iterative ERL 伪代码（Alg1）**可自行重建。【原文 附录 E/G】
 
-- 💰 **资源/成本与可扩展性**【原文 附录 D Table4】：**无 GPU 训练成本**（纯推理）。一次完整 Gaia2 测试集评测：基线 scenario rollout 输入 103.8M token(82% cached)/输出 4.3M/约 \$15.27；ERL 总计 **输入 200.5M token(85% cached)/输出 4.3M/约 \$21.40**。开销来源：**每 turn 把 20 条启发式(~20k token)拼到 12k token 的基础 system prompt**，使 rollout 输入 token **近翻倍(+85%)**;但靠 **prompt caching（ERL 缓存比 88% > 基线 82%）**，rollout 单项成本只 +15%;**含启发式生成(\$2.42)+检索(\$1.38)，总 API 成本 +40%**。turns/scenario 基本不变(16.6→17.6)。延迟未测（多一次检索 LLM 调用，对数十轮的长任务边际、对短任务可能不可忽略）。可扩展性瓶颈：启发式表征不够紧凑 + 大池下 LLM ranker(k>20)低效 + 无淘汰机制。
+- 💰 **资源/成本与可扩展性**【原文 附录 D Table4】：**无 GPU 训练成本**（纯推理）。一次完整 Gaia2 测试集评测：基线 scenario rollout 输入 103.8M token(82% cached)/输出 4.3M/约 \$15.27；ERL 总计 **输入 200.5M token(85% cached)/输出 4.3M/约 \$21.40**。开销来源：**每 turn 把 20 条启发式(~20k token)拼到 12k token 的基础 system prompt**，使 rollout 输入 token **近翻倍(+85%)**;但靠 **prompt caching（ERL 缓存比 88% > 基线 82%）**，rollout 单项成本只 +15%;**含启发式生成(\$2.42)+检索(\$1.38)，总 API 成本 +40%**。turns/scenario 基本不变(16.6→17.6)。延迟未测（多一次检索 LLM 调用，对数十轮的长任务边际、对短任务可能不可忽略）。可扩展性瓶颈：启发式表征不够紧凑 + 大池下 LLM ranker(\(k>20\))低效 + 无淘汰机制。
 
 - 🎯 **对"探索-巩固"idea 对标** [light]：**强支撑 + 可借组件**。
   - **强支撑**：① ERL 的"**从单次尝试反思出带触发条件的可迁移规则**"几乎是 TSRD"path-recovery/path-selection 教学信号"的纯文本、免训练版——证明"把一次经历蒸成 if-then 规则"是有效的可迁移抽象。② "**失败启发式 vs 成功启发式各利好不同任务类型**"（失败→剪枝无效策略/Search，成功→强化已验证序列/Execution）直接呼应项目"既存成功路径(巩固)又存失败(path-recovery)"的双轨设计，且给出了**何时用哪种**的实证。③ "**启发式 > 原始轨迹（即便控 token）**"支持"巩固时蒸馏成精炼信号而非堆原始轨迹"。④ "**质 > 量、选择性检索关键、全塞会非单调下滑**"与项目"只巩固关键步/关键路径"同构。
-  - **可借组件**：① **结构化反思 prompt（Analysis: breakpoint/winning-move + Guideline: Trigger/Action，附录 Fig8）** 可直接作为"把教师/自身轨迹转成可注入脚手架"的模板。② **LLM-as-reranker 按 相似度+错误模式+信息量 三准则选 top-k** 可迁移为"为当前题选最相关历史推理路径"的检索器（比 embedding 强）。③ **pass^3 可靠性指标** 是评估"巩固是否真的让模型更稳"的好度量。④ **universe 式无污染评测** 设计可借。
+  - **可借组件**：① **结构化反思 prompt（Analysis: breakpoint/winning-move + Guideline: Trigger/Action，附录 Fig8）** 可直接作为"把教师/自身轨迹转成可注入脚手架"的模板。② **LLM-as-reranker 按 相似度+错误模式+信息量 三准则选 top-k** 可迁移为"为当前题选最相关历史推理路径"的检索器（比 embedding 强）。③ **\(\text{pass}^3\) 可靠性指标** 是评估"巩固是否真的让模型更稳"的好度量。④ **universe 式无污染评测** 设计可借。
   - **可作对照基线**：ERL（纯启发式记忆、零训练）= "不蒸馏进权重、只靠文本启发式" 的极简对照，可量化 OPD/蒸馏相对它的增量。
   - **缺口/与 idea 的张力**：ERL **无主动探索（被动消费已发生轨迹）、无 MTP foresight 探测、无池淘汰/巩固、依赖二值 reward、不蒸进权重、iterative 变体泛化反降**——正是探索-巩固 idea 要补的空白（主动 foresight 探索 + 选择性巩固进参数 + 防遗忘）。其"被引导轨迹更不可迁移"的发现，也对"在线引导式探索"提了警示。【推断：基于 §1/附录 E 自述】
 

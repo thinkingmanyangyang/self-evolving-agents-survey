@@ -97,7 +97,7 @@
 
 ### 🖼 关键图 top-2
 ![图2-SDFT方法主图:同一模型分饰教师(condition示范c)与学生(只condition查询x),学生采样轨迹做反向KL蒸馏=on-policy更新;右图示教师对基座的KL远小于SFT](../figures/sdft_selfdistill_fig2.png)
-- 这是**原文 Figure 2**(方法主图/pipeline,我渲染了含上方插图与正文的整页以保留语境)。左:同一 LLM_θ 两种模式——Teacher Mode 见到 Demonstration、Student Mode 只见 Query,各出 token 分布 Q/P,下一 token 从 P 采样,损失 \(E_{y∼P}[log P/Q]\)(反向 KL),梯度回学生 → On-Policy Distillation。右:概念图——把模型 condition 在示范上,得到的教师(Demonstrator Teacher)分布**显著比 SFT 更靠近 Base Policy**,同时保住新任务准确率("既对又近")。**选它**:一张图说清全文最巧的一步(用 ICL 教师把示范变 on-policy 信号)+ 少遗忘的来由(教师贴近基座→低 KL),是理解"探索-巩固"巩固期"无 reward 也能 KL-min"的最佳缩略图。
+- 这是**原文 Figure 2**(方法主图/pipeline,我渲染了含上方插图与正文的整页以保留语境)。左:同一 \(\mathrm{LLM}_θ\) 两种模式——Teacher Mode 见到 Demonstration、Student Mode 只见 Query,各出 token 分布 Q/P,下一 token 从 P 采样,损失 \(E_{y∼P}[log P/Q]\)(反向 KL),梯度回学生 → On-Policy Distillation。右:概念图——把模型 condition 在示范上,得到的教师(Demonstrator Teacher)分布**显著比 SFT 更靠近 Base Policy**,同时保住新任务准确率("既对又近")。**选它**:一张图说清全文最巧的一步(用 ICL 教师把示范变 on-policy 信号)+ 少遗忘的来由(教师贴近基座→低 KL),是理解"探索-巩固"巩固期"无 reward 也能 KL-min"的最佳缩略图。
 
 ![图3-序列持续学习:SDFT(左)逐个累积Tool/Science/Medical三技能不回退,SFT(右)学下一个就忘上一个、振荡](../figures/sdft_selfdistill_fig3.png)
 - 这是**原文 Figure 3**(核心发现/主结果图)。把一个模型**依次**在 Tool Use→Science→Medical 三技能上训练,纵轴为各任务归一化性能随梯度步的变化。**SDFT(a)**:学新任务时,已学任务的曲线基本维持高位,呈**累积式上升**;**SFT(b)**:每切换到下一个任务,前面任务性能**急剧跌落**,呈振荡而非累积。**选它**:这是"真持续学习 vs 灾难性遗忘"最直观的对比,直接支撑标题主张,也正是"探索-巩固"idea 追求的"长寿命累积不回退"的目标态可视化——对标 idea 时这张图说明 on-policy 自蒸馏已能撑起多技能累积的巩固骨架。

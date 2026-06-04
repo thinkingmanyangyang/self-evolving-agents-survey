@@ -6,7 +6,7 @@
 
 - 🟦 **TL;DR**:给 LLM agent 造一个**三层异构图记忆**:底层是 query 节点,中层把原始轨迹抽象成"有限状态机(FSM)上的标准决策路径",顶层从成功/失败路径对比里蒸馏出"元认知策略(meta-cognition)"——一句句人能看懂的高层启发式(如"当内部知识与外部检索冲突时,优先信外部已验证信息")。关键创新:**图的边带可学习权重**,用 RL(REINFORCE)按"加了这条策略 vs 不加"的奖励差(counterfactual reward gap)去打分,把"哪条策略真有用"学出来;然后把 top-k 高分策略拼到 prompt 前面,**既用于推理、也喂进 GRPO 的 RL 训练循环**。一句话:把"显式可解释的策略记忆"和"隐式参数学习"缝在一起。【原文 摘要+§4】
 
-- **最巧的一步**:**用 counterfactual reward gap(ΔR = R_with − R_w/o)做图边权重的训练信号**。抽掉它,图就退化成静态结构化 prompt(=EXPEL 那类),无法区分"广泛有用的策略"和"过拟合的具体技巧"。消融 Figure 4(a)(b) 正好证明:freeze 权重(no-weight)后性能明显下滑(如 Bamboogle 0.391→0.359、2Wiki 掉得最狠)。这是它区别于所有静态图记忆方法的根。【原文 §5.4, Figure 4】
+- **最巧的一步**:**用 counterfactual reward gap(\(\Delta R = R_{with} - R_{w/o}\))做图边权重的训练信号**。抽掉它,图就退化成静态结构化 prompt(=EXPEL 那类),无法区分"广泛有用的策略"和"过拟合的具体技巧"。消融 Figure 4(a)(b) 正好证明:freeze 权重(no-weight)后性能明显下滑(如 Bamboogle 0.391→0.359、2Wiki 掉得最狠)。这是它区别于所有静态图记忆方法的根。【原文 §5.4, Figure 4】
 
 ══ 第二层:为什么做 ══
 
@@ -28,13 +28,13 @@
 ══ 第三层:怎么做 + 靠不靠谱 ══
 
 - **方法流水线(三阶段,对应 Figure 2)**:
-  1. **Stage 1 分层图构建**:节点集 V=Q∪T∪M,有向边 (Q×T)∪(T×M),DAG 拓扑。
+  1. **Stage 1 分层图构建**:节点集 \(V=Q\cup T\cup M\),有向边 \((Q\times T)\cup(T\times M)\),DAG 拓扑。
      - *Query 层 Q*:每个 query 节点含输入、执行轨迹、结果标签;一题多解则连多条 path。
-     - *Transition Path 层 T*:把原始轨迹映射到**预定义 FSM**(状态如 StrategyPlanning / InformationAnalysis / ToolExecution / AnswerGeneration,转移 T:S×A→S)上的 canonical path,**滤掉执行级噪声**、只留语义决策点,使跨任务可比。
-     - *Meta-Cognition 层 M*:对每个 query 采样 N 条轨迹;**若同时有成功 τs 和失败 τf,对比二者 FSM 路径**得到高置信 meta-cognition(解释成败分歧);只有失败时,则检索 top-K 相似邻居 query,从其成功路径取"speculative meta-cognition"。
+     - *Transition Path 层 T*:把原始轨迹映射到**预定义 FSM**(状态如 StrategyPlanning / InformationAnalysis / ToolExecution / AnswerGeneration,转移 \(T:S\times A\to S\))上的 canonical path,**滤掉执行级噪声**、只留语义决策点,使跨任务可比。
+     - *Meta-Cognition 层 M*:对每个 query 采样 N 条轨迹;**若同时有成功 \(\tau_s\) 和失败 \(\tau_f\),对比二者 FSM 路径**得到高置信 meta-cognition(解释成败分歧);只有失败时,则检索 top-K 相似邻居 query,从其成功路径取"speculative meta-cognition"。
      - 动态更新:新 path 来 → 强化已有策略置信 / 新模式建新节点 / 冗余低置信路径丢弃。【原文 §4.1】
-  2. **Stage 2 可训练图权重优化**:把图当稀疏加权网络,信息按 H_T=σ((A_qt⊙W_qt)ᵀH_Q)、H_M=σ((A_tm⊙W_tm)ᵀH_T) 两跳传播。新 query 用与历史 query 的相似度激活 task-specific 子图;候选策略 m_k 的相关性 ρ(m_k|q)=Σ Sim(q,q_i)·w_qt·w_tm,softmax 成选择概率 p(m_k|q)。**用 REINFORCE 优化权重**:L_RL = −E[ΔR_k · log p(m_k|q)],ΔR_k = R_with(m_k) − R_w/o(正向 ΔR 强化支撑路径,负向削弱)。【原文 §4.2】
-  3. **Stage 3 记忆引导的 RL(GRPO)**:**区别于"只在推理时用记忆"的前作**,把记忆塞进训练循环——对每个训练样本 q_train,按图权重算每个 meta-cognition 的相关性,取 top-k 拼成增强 prompt q̃=[m1…mk; q_train],作为 policy 输入;用 **GRPO** 优化 π_θ,目标 L_RL+Mem = −E[R(a)]。这样 policy 不在孤立中学,而被"持续演化的策略语料"引导,加速收敛。【原文 §4.3】
+  2. **Stage 2 可训练图权重优化**:把图当稀疏加权网络,信息按 \(H_T=\sigma((A_{qt}\odot W_{qt})^\top H_Q)\)、\(H_M=\sigma((A_{tm}\odot W_{tm})^\top H_T)\) 两跳传播。新 query 用与历史 query 的相似度激活 task-specific 子图;候选策略 \(m_k\) 的相关性 \(\rho(m_k|q)=\Sigma\, \mathrm{Sim}(q,q_i)\cdot w_{qt}\cdot w_{tm}\),softmax 成选择概率 \(p(m_k|q)\)。**用 REINFORCE 优化权重**:\(L_{RL} = -\mathbb{E}[\Delta R_k \cdot \log p(m_k|q)]\),\(\Delta R_k = R_{with}(m_k) - R_{w/o}\)(正向 \(\Delta R\) 强化支撑路径,负向削弱)。【原文 §4.2】
+  3. **Stage 3 记忆引导的 RL(GRPO)**:**区别于"只在推理时用记忆"的前作**,把记忆塞进训练循环——对每个训练样本 \(q_{train}\),按图权重算每个 meta-cognition 的相关性,取 top-k 拼成增强 prompt \(\tilde{q}=[m_1\dots m_k; q_{train}]\),作为 policy 输入;用 **GRPO** 优化 \(\pi_\theta\),目标 \(L_{RL+Mem} = -\mathbb{E}[R(a)]\)。这样 policy 不在孤立中学,而被"持续演化的策略语料"引导,加速收敛。【原文 §4.3】
 
 - **逐组件必要性**:
   - *边权 RL 优化*:Figure 4(a)(b) freeze 权重显著掉点 → **必要,有消融**。
@@ -43,7 +43,7 @@
   - *FSM 抽象这一步*:**无单独消融**(没有"不抽 FSM、直接用原始轨迹"的对照)——FSM 状态定义放附录 B.1。属"机制合理但未单独证明"项。【推断:依据=§5.4 只列三类消融,无 FSM 拆解】
   - *成功+失败对比 vs 只成功*:**无单独消融**(reasoningbank 那种 success-only 对照本文未做)。【推断:依据=§5.4】
 
-- **关键机制直觉**:核心是"**把记忆检索做成可微/可强化的策略选择**"。图的边权 = "这条策略历史上对下游 reward 的贡献度"的可学习估计;ΔR 是无偏的边际效用探针(控制变量:同一题加/不加该策略)。softmax(ρ) 把"结构可达性 × 学到的效用"合成检索分布,REINFORCE 让高效用策略被更频繁选中。这本质是给"记忆该挑哪条"装了个 RL 学出来的、可解释的打分器。【原文 §4.2】
+- **关键机制直觉**:核心是"**把记忆检索做成可微/可强化的策略选择**"。图的边权 = "这条策略历史上对下游 reward 的贡献度"的可学习估计;\(\Delta R\) 是无偏的边际效用探针(控制变量:同一题加/不加该策略)。\(\mathrm{softmax}(\rho)\) 把"结构可达性 × 学到的效用"合成检索分布,REINFORCE 让高效用策略被更频繁选中。这本质是给"记忆该挑哪条"装了个 RL 学出来的、可解释的打分器。【原文 §4.2】
 
 - **实验与证据**:
   - 数据集:**7 个 QA**——General(NQ, TriviaQA, PopQA)+ Multi-hop(HotpotQA, 2WikiMultiHopQA, Musique, Bamboogle)。检索:**2018 Wikipedia dump + E5 retriever,封装成 MCP 工具**让 LLM 自主调用。模型:Qwen3-8B / Qwen3-4B。协议:<think>/<tool_call>/<answer>。【原文 §5.1, 附录A.1】
@@ -74,7 +74,7 @@
 
 - ⑦ **开源代码 + 框架/harness**:**原文未给出代码链接/未声明开源**(摘要、结论、正文均无 GitHub URL)→ **未开源/未找到**。训练框架:**GRPO**,实现明显基于 **Search-R1**(以其为训练 baseline)与作者自家 **RL-Factory(Chai et al., 2025, arXiv:2509.06980,multi-turn tool-use 的 plug-and-play RL 后训练框架)**;检索用 **E5 + 2018 Wiki,封装为 MCP tool**。〔框架为推断:依据=以 Search-R1 为 base + 同组 RL-Factory 被反复引用且专做 multi-turn tool RL;**待核**实际代码仓〕【原文 §4.3, 附录A.1, §2.1】
 
-- 💰 **资源/成本与可扩展性**:模型小(Qwen3-4B/8B),主打"小模型靠记忆追平大模型"(4B 训后 0.426 > 8B baseline 0.395)。隐性成本:构图时每条策略要跑加/不加两条轨迹估 ΔR(采样翻倍);图规模/检索延迟**原文未说明**。无 API 成本(开源 Qwen)。【原文 §5.3;成本细节缺】
+- 💰 **资源/成本与可扩展性**:模型小(Qwen3-4B/8B),主打"小模型靠记忆追平大模型"(4B 训后 0.426 > 8B baseline 0.395)。隐性成本:构图时每条策略要跑加/不加两条轨迹估 \(\Delta R\)(采样翻倍);图规模/检索延迟**原文未说明**。无 API 成本(开源 Qwen)。【原文 §5.3;成本细节缺】
 
 - 🎯 **对"探索-巩固"idea 对标**:**强支撑 + 高价值可借组件**。
   - *可借组件 1*:**counterfactual ΔR 做"记忆/策略效用"的打分信号**——可直接迁移到 TSRD 的"巩固"阶段,用"接管某条 path-recovery 策略 vs 不接管"的 reward 差来决定该策略是否值得沉淀。

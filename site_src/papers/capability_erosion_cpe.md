@@ -5,7 +5,7 @@
 ══ 第一层：一眼看懂 [light] ══
 
 - 🟦 **TL;DR**：现在所有"自进化 agent"框架(改 workflow / 攒技能 / 自训模型 / 累积记忆)都只盯着"新任务上有没有进步",**没人系统问过:学新任务时,以前会的还会不会?** 本文做了这个实验,发现答案是"**经常不会**"——自进化是**非单调(non-monotonic)** 的:适应新任务分布会**渐进式地侵蚀已掌握的旧能力**,而且这在 workflow / skill / model / memory **四条通道上一致出现**。作者把这命名为 **capability erosion(能力侵蚀)**,并给出一个统一的成因解释:四种演化看似异构,本质都是"**反复重写一个可变仓库(mutable repository)以容纳新任务**",每次只为新任务优化的更新都会**破坏性干扰(destructive interference)** 掉旧任务依赖的结构。对策是 **Capability-Preserving Evolution(CPE,能力保持式演化)**:在演化目标里加一个**保持正则项 Ω**,偏向"既学会新任务、又最小破坏旧能力支撑结构"的更新。四通道各自实例化 Ω(workflow 锚行为签名 / skill 合并保护高价值技能 / model 用 EWC-Fisher 正则 / memory evidence-gated 保护),实验都能稳住旧能力且不牺牲新任务(如 workflow:GPT-5.1 下保留的简单任务性能 41.8%→52.8%,同时复杂任务也更强)。【原文 Abstract/§1-4】
-- **最巧的一步**：**Proposition 1 的"曲率机制"——把"能力侵蚀"精确地归因到一个二次型 \(½η²·gₜᵀ H_<t gₜ\)**(新任务梯度 gₜ 在旧能力 Hessian H_<t 的正曲率方向上的投影)。抽掉这个机制分析,本文就只是"又一篇报告四个场景都会遗忘"的实证;**正是这一步把四种异构演化(workflow/skill/model/memory)统一到同一个数学根源——"更新方向与旧能力敏感方向的重叠度"**,从而 CPE 的保持正则(用一个度量 Mₜ 上控 H_<t)才有了统一的理论落点(Prop 2)。这是全文从"现象描述"升级为"机制+药方"的关键。
+- **最巧的一步**：**Proposition 1 的"曲率机制"——把"能力侵蚀"精确地归因到一个二次型 \(½η²·gₜᵀ H_<t gₜ\)**(新任务梯度 \(g_t\) 在旧能力 Hessian \(H_{<t}\) 的正曲率方向上的投影)。抽掉这个机制分析,本文就只是"又一篇报告四个场景都会遗忘"的实证;**正是这一步把四种异构演化(workflow/skill/model/memory)统一到同一个数学根源——"更新方向与旧能力敏感方向的重叠度"**,从而 CPE 的保持正则(用一个度量 \(M_t\) 上控 \(H_{<t}\))才有了统一的理论落点(Prop 2)。这是全文从"现象描述"升级为"机制+药方"的关键。
 
 ══ 第二层：为什么做（写透） ══
 
@@ -24,24 +24,24 @@
 ══ 第三层：怎么做 + 靠不靠谱 ══
 
 - **方法流水线(理论模板 → 四通道实例化;核心是一个统一目标 + 曲率分析)**：
-  1. **统一形式化(§2.1)**：自进化 = 在任务分布序列 D₁…D_T 上的顺序适应。stage t 的 agent 用**能力状态 Rₜ∈R** 表示(可以是 workflow / skill 库 / 参数 / 记忆库)。朴素自进化只优化当前 stage 目标:\(R_naive_t ∈ argmin_R Lₜ(R)\)(Eq.2)。**关键抽象:故意隐藏 Rₜ 的具体表示,让四通道共享同一套学习动力学**。
-  2. **定义能力侵蚀(§2.2)**：保留的旧分布风险 \(L_<t(R)=Σ_{i<t} αᵢ Lᵢ(R)\)(Eq.3)。若适应当前 Dₜ 使 \(L_<t(Rₜ) > L_<t(R_{t-1})\)(Eq.4),即发生能力侵蚀。**根因 = 分布干扰**:当前目标 Lₜ 的极小点与旧目标 L_<t 错配时,只优化 Lₜ 会把状态推向"增加旧风险"的区域。
-  3. **局部曲率机制(§2.3,Prop 1)**：设 R_{t-1} 对旧分布已局部适应(∇L_<t=0),旧能力 Hessian \(H_<t⪰0\),新任务梯度 \(gₜ=∇Lₜ\)。朴素更新 \(R_naive_t=R_{t-1}−η gₜ\) 后,**旧任务损失增量 = \(½η²·gₜᵀ H_<t gₜ + o(η²)\)**。⇒ **只要 gₜ 在 H_<t 的正曲率方向有非零投影,旧能力就退化**——侵蚀**不由更新大小单独决定,而由"新更新方向与旧能力敏感方向的重叠"决定**。
-  4. **CPE 目标(§3.1,Eq.5)**：\(R_CPE_t ∈ argmin_R Lₜ(R) + λ Ωₜ(R, R_{t-1})\)。Ωₜ 衡量"偏离旧能力支撑结构"的程度,λ 控 stability-plasticity 权衡(λ=0 即朴素)。**Ω 不是阻止演化,而是偏向低干扰解**:在所有能改进新分布的更新里,挑最不破坏旧结构的。
-  5. **局部遗忘控制(§3.2,Prop 2)**：二次代理下 \(∆_λ=−(Hₜ+λMₜ)⁻¹ gₜ\),在"保持度量 Mₜ 上控旧 Hessian"(Assumption 1: H_<t ⪯ c Mₜ)下,旧任务退化 \(≤ (c/2λ²)‖gₜ‖²_{Mₜ⁻¹}\)。⇒ **加大 λ 同时抑制旧任务退化 + 限制新任务更新幅度**,即局部 stability-plasticity 权衡。
+  1. **统一形式化(§2.1)**：自进化 = 在任务分布序列 \(D_1\dots D_T\) 上的顺序适应。stage t 的 agent 用**能力状态 \(R_t\in\mathcal{R}\)** 表示(可以是 workflow / skill 库 / 参数 / 记忆库)。朴素自进化只优化当前 stage 目标:\(R_naive_t ∈ argmin_R Lₜ(R)\)(Eq.2)。**关键抽象:故意隐藏 \(R_t\) 的具体表示,让四通道共享同一套学习动力学**。
+  2. **定义能力侵蚀(§2.2)**：保留的旧分布风险 \(L_<t(R)=Σ_{i<t} αᵢ Lᵢ(R)\)(Eq.3)。若适应当前 \(D_t\) 使 \(L_<t(Rₜ) > L_<t(R_{t-1})\)(Eq.4),即发生能力侵蚀。**根因 = 分布干扰**:当前目标 \(L_t\) 的极小点与旧目标 \(L_{<t}\) 错配时,只优化 \(L_t\) 会把状态推向"增加旧风险"的区域。
+  3. **局部曲率机制(§2.3,Prop 1)**：设 \(R_{t-1}\) 对旧分布已局部适应(\(\nabla L_{<t}=0\)),旧能力 Hessian \(H_<t⪰0\),新任务梯度 \(gₜ=∇Lₜ\)。朴素更新 \(R_naive_t=R_{t-1}−η gₜ\) 后,**旧任务损失增量 = \(½η²·gₜᵀ H_<t gₜ + o(η²)\)**。⇒ **只要 \(g_t\) 在 \(H_{<t}\) 的正曲率方向有非零投影,旧能力就退化**——侵蚀**不由更新大小单独决定,而由"新更新方向与旧能力敏感方向的重叠"决定**。
+  4. **CPE 目标(§3.1,Eq.5)**：\(R_CPE_t ∈ argmin_R Lₜ(R) + λ Ωₜ(R, R_{t-1})\)。\(\Omega_t\) 衡量"偏离旧能力支撑结构"的程度,λ 控 stability-plasticity 权衡(λ=0 即朴素)。**Ω 不是阻止演化,而是偏向低干扰解**:在所有能改进新分布的更新里,挑最不破坏旧结构的。
+  5. **局部遗忘控制(§3.2,Prop 2)**：二次代理下 \(∆_λ=−(Hₜ+λMₜ)⁻¹ gₜ\),在"保持度量 \(M_t\) 上控旧 Hessian"(Assumption 1: \(H_{<t} \preceq c M_t\))下,旧任务退化 \(≤ (c/2λ²)‖gₜ‖²_{Mₜ⁻¹}\)。⇒ **加大 λ 同时抑制旧任务退化 + 限制新任务更新幅度**,即局部 stability-plasticity 权衡。
 - **四通道实例化(§3.3 + §4,同一目标、不同 Ω)**：
-  - **① Workflow(§4.1)**：Rₜ=可执行 workflow。Ω_wf=**注入从种子 workflow 抽的"锚行为签名"**(核心任务目标 / 输出约束 / 失败规避行为),抑制破坏性重写。框架:**EvoAgentX** on **τ²-Bench**,GPT-5.1 / GPT-5 nano 当 optimizer。证据:Table 1 —— 保留的简单任务 Avg 41.8%→52.8%(GPT-5.1),复杂任务 Avg 23.9%→33.4%(**两头都涨**);Fig 2 —— 朴素演化累积"验证算子/结构绕路"使 workflow 越来越臃肿、过度防御(把略不标准但有效的动作也拒了),CPE 大幅减缓结构膨胀。
-  - **② Skill/Tool(§4.2)**：Rₜ=有界容量技能库。Ω_sk=**入库前检查能力签名 + 合并语义相近技能腾容量 + 保护高复用技能不被直接删**。框架:**MemSkill 风格** on **MATH**,GPT-4o mini / GPT-5 nano 当 designer/executor。证据:Table 2(Algebra→Geometry→Number Theory 演化后三域都 CPE 略高);**Fig 4a 朴素演化逐步压制旧域技能使用率,CPE 保持更广的旧技能利用;Fig 4b Algebra 评测集上朴素持续退化,CPE 稳住**。
-  - **③ Model(§4.3)**：Rₜ=可训练参数(LoRA adapter)。Ω_md=**EWC 式 Fisher 重要性加权二次罚** \(Ω_md=½Σᵢ Fᵢ(θᵢ−θ_{t-1,i})²\)(Eq.7),罚对旧域重要的参数移动。框架:**STaR 自训** on **MedMCQA**,Qwen3-0.6B / Llama3.2-3B,Anatomy→Biochemistry→Dental 顺序。证据:Table 3 + Fig 5 —— 朴素出现经典灾难遗忘,CPE 在所有域保留更高旧性能(Qwen3-0.6B Anatomy 29.4%→30.5% 等,幅度不大但一致)。
-  - **④ Memory(§4.4,细节在 Appendix F)**：Rₜ=持久记忆库。Ω_mem=**evidence-gated preservation**(保护历史可靠记忆、低证据条目仍可改),把平均 retention gap 从 2.3%→0.7%。
+  - **① Workflow(§4.1)**：\(R_t\)=可执行 workflow。\(\Omega_{wf}\)=**注入从种子 workflow 抽的"锚行为签名"**(核心任务目标 / 输出约束 / 失败规避行为),抑制破坏性重写。框架:**EvoAgentX** on **τ²-Bench**,GPT-5.1 / GPT-5 nano 当 optimizer。证据:Table 1 —— 保留的简单任务 Avg 41.8%→52.8%(GPT-5.1),复杂任务 Avg 23.9%→33.4%(**两头都涨**);Fig 2 —— 朴素演化累积"验证算子/结构绕路"使 workflow 越来越臃肿、过度防御(把略不标准但有效的动作也拒了),CPE 大幅减缓结构膨胀。
+  - **② Skill/Tool(§4.2)**：\(R_t\)=有界容量技能库。\(\Omega_{sk}\)=**入库前检查能力签名 + 合并语义相近技能腾容量 + 保护高复用技能不被直接删**。框架:**MemSkill 风格** on **MATH**,GPT-4o mini / GPT-5 nano 当 designer/executor。证据:Table 2(Algebra→Geometry→Number Theory 演化后三域都 CPE 略高);**Fig 4a 朴素演化逐步压制旧域技能使用率,CPE 保持更广的旧技能利用;Fig 4b Algebra 评测集上朴素持续退化,CPE 稳住**。
+  - **③ Model(§4.3)**：\(R_t\)=可训练参数(LoRA adapter)。\(\Omega_{md}\)=**EWC 式 Fisher 重要性加权二次罚** \(Ω_md=½Σᵢ Fᵢ(θᵢ−θ_{t-1,i})²\)(Eq.7),罚对旧域重要的参数移动。框架:**STaR 自训** on **MedMCQA**,Qwen3-0.6B / Llama3.2-3B,Anatomy→Biochemistry→Dental 顺序。证据:Table 3 + Fig 5 —— 朴素出现经典灾难遗忘,CPE 在所有域保留更高旧性能(Qwen3-0.6B Anatomy 29.4%→30.5% 等,幅度不大但一致)。
+  - **④ Memory(§4.4,细节在 Appendix F)**：\(R_t\)=持久记忆库。\(\Omega_{mem}\)=**evidence-gated preservation**(保护历史可靠记忆、低证据条目仍可改),把平均 retention gap 从 2.3%→0.7%。
 - **逐组件必要性**：CPE 在**四通道各做"朴素 vs CPE,同 pipeline/同预算"对照**,Ω 是唯一变量 → 干净隔离了"保持正则"的贡献。**理论侧 Prop 1/2 提供因果机制**(侵蚀来自曲率重叠、CPE 沿低干扰方向更新)。**消融**:λ 是显式 stability-plasticity 旋钮(Eq.5)。【推断:正文未见对 Ω 各子项的细粒度消融(如 workflow 三种锚签名分别去掉),细节可能在附录;依据:正文只报 vanilla-vs-CPE 二元对照。】
-- **关键机制直觉**：核心直觉是"**遗忘不是因为'改得太多',而是因为'改在了旧能力的命门方向上'**"。EWC 的 Fisher、workflow 的锚签名、skill 的合并保护、memory 的 evidence-gate,**本质都是同一招的不同实现:先估出'哪些方向/条目对旧能力重要',再在那些方向上加阻力**——这正是 H_<t ⪯ c Mₜ 这个"保持度量上控旧 Hessian"的假设在各通道的具象。
+- **关键机制直觉**：核心直觉是"**遗忘不是因为'改得太多',而是因为'改在了旧能力的命门方向上'**"。EWC 的 Fisher、workflow 的锚签名、skill 的合并保护、memory 的 evidence-gate,**本质都是同一招的不同实现:先估出'哪些方向/条目对旧能力重要',再在那些方向上加阻力**——这正是 \(H_{<t} \preceq c M_t\) 这个"保持度量上控旧 Hessian"的假设在各通道的具象。
 - **实验与证据**：
   - **数据集/环境**:τ²-Bench(workflow,Airline/Retail/Telecom)、MATH(skill,Algebra/Geometry/Number Theory)、MedMCQA(model,Anatomy/Biochemistry/Dental)、记忆 benchmark(Appendix F)。**模型**:GPT-5.1 / GPT-5 nano / GPT-4o mini(闭源 optimizer/executor)、Qwen3-0.6B / Llama3.2-3B(开源,model 通道自训)。
   - **支撑核心主张的关键实验 = 四通道一致的 vanilla<CPE 表**(Table 1-3 + Fig 4/5):Table 1 最亮眼(workflow 保留任务 +11 个点且复杂任务也 +9.5);**Fig 4a 的"旧技能使用率随演化单调下降(vanilla)vs CPE 保持"** 最直观地展示"泛化侵蚀"机制。
   - **baseline 公平吗 / 隐患**【推断】:① **model/skill 通道的绝对增益偏小**(常 ~1-2 个点,如 Table 3 Anatomy 29.4→30.5、Biochemistry 仅 +0.1 on Llama),"consistently improves"成立但**幅度有限**,workflow 通道才是增益主战场;② **各通道用了不同 benchmark + 不同模型规模**(workflow 用 GPT-5.1,model 用 0.6B/3B),"四通道普遍性"是定性成立,但**跨通道不可直接量化比较**;③ 闭源 GPT-5.1/nano 作 optimizer,可复现性依赖 API 版本。④ **CPE 各实例其实是已知技术的迁移**(EWC=2017 经典、skill 合并=常见库管理、workflow 锚签名=prompt 约束),**新意主要在"统一框架+曲率机制解释",而非单个 Ω 的算法创新**。
 - **假设与失效边界**：
-  - 【原文 Prop 1/2 + Assumption 1】机制分析建立在**局部二次近似 + R_{t-1} 是旧目标局部极小点 + 保持度量上控旧 Hessian(H_<t⪯cMₜ)** 之上;远离极小点 / 强非凸 / 度量与真实 Hessian 错配时,理论保证可能失效【推断,依据 §2.3/§3.2 的局部假设措辞】。
+  - 【原文 Prop 1/2 + Assumption 1】机制分析建立在**局部二次近似 + \(R_{t-1}\) 是旧目标局部极小点 + 保持度量上控旧 Hessian(\(H_{<t}\preceq cM_t\))** 之上;远离极小点 / 强非凸 / 度量与真实 Hessian 错配时,理论保证可能失效【推断,依据 §2.3/§3.2 的局部假设措辞】。
   - 【原文§2.2】当新旧分布"能力支撑重叠"时,干扰可能很弱甚至有益(正迁移);CPE 的收益在**新旧分布结构错配大**时才显著。
   - 【推断】非参数通道(workflow/skill/memory)里,"Hessian/曲率"只是**类比**(这些仓库不是连续可微参数空间),Prop 1/2 严格成立于 model 通道,其余通道是"同构动力学"的**启发式映射**;依据:§2.1 明说"intentionally hides the concrete representation",§3.3 对非参数通道用"capability-aware discrepancy"而非真 Hessian。
   - 【推断】实验为**短序列(3 stage / 3 域)**,长程(几十上百 stage)下 CPE 的累积稳定性、以及"保护太多旧能力→新任务学不动(plasticity 塌缩)"的边界未充分探。

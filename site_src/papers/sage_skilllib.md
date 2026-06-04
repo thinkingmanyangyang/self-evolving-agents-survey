@@ -17,8 +17,8 @@
 - **方法流水线**(输入→输出,5 步):
   1. **统一格式 skill library agent**(§3.1):agent 处理任务 q 时,先从技能库 M 检索 top-k 技能入 context;交互中可做 4 种动作——Skill Usage(用已有技能)/ Skill Generation(定义新技能函数并立即调用)/ Skill Update(技能执行失败则改写重调)/ Skill Save(执行无错则存入/更新 M);也允许直接 API 调用。
   2. **SFT 冷启动**:用 Claude 3.5 Sonnet V2 作专家在该 agent 格式下产高质量轨迹,用 LLaMA-Factory 全参微调 Qwen2.5-32B-Instruct(4×H100)——把开源模型拉到能产生有效 rollout 的水平。
-  3. **Sequential Rollout**(§3.2.2):把同场景的两个相似任务 (q1,q2) 串成链,顺序 rollout;q1 阶段技能库 M¹=∅,q2 阶段 M²=q1 生成的技能。同一 group 内不同样本 i 的 M²ᵢ 不同(这是与原 GRPO 的关键差异——同 group 生成来自不同技能库)。
-  4. **Skill-integrated Reward**(§3.2.3):R1 = r1 + 1[r1=1]·1[r2=1]·1skill(q2|q1);R2 = r2 + 1[r2=1]·1skill(q2|q1)。即:只有当任务真成功**且** q2 确实用了 q1 造的技能,才给技能奖励;无代码直接终止则 −1.0 惩罚。
+  3. **Sequential Rollout**(§3.2.2):把同场景的两个相似任务 (q1,q2) 串成链,顺序 rollout;q1 阶段技能库 \(M¹=∅\),q2 阶段 \(M²=\)q1 生成的技能。同一 group 内不同样本 i 的 \(M²ᵢ\) 不同(这是与原 GRPO 的关键差异——同 group 生成来自不同技能库)。
+  4. **Skill-integrated Reward**(§3.2.3):\(R1 = r1 + 1[r1=1]·1[r2=1]·1_{skill}(q2|q1)\);\(R2 = r2 + 1[r2=1]·1_{skill}(q2|q1)\)。即:只有当任务真成功**且** q2 确实用了 q1 造的技能,才给技能奖励;无代码直接终止则 −1.0 惩罚。
   5. **SAGE 优化**(§3.2.4):在 (q1,q2) 链上做 group rollout,用上述奖励算组内相对优势 Âᵏ,GRPO 式更新;**不用 KL 惩罚、优势不除标准差**(follow LOOP);环境观测 token 被 mask,只对 LLM 生成内容算 loss。
 - **逐组件必要性**:
   · Sequential Rollout / Skill-integrated Reward → 消融(Table 4)对比 Outcome-based / Chain-based 奖励:Skill-integrated 60.7 SGC > Chain-based 56.6 > Outcome-based 55.4,**有消融证明**。

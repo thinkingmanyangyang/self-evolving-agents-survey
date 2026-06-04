@@ -29,14 +29,14 @@
 ══ 第三层:怎么做 + 靠不靠谱 ══
 
 - **方法流水线(两大组件,对应 Figure 2)**:
-  1. **加权多关系图记忆**:有向多重图 G_t=(N_t,E_t),边按 4 种关系拆成 E_temp∪E_sem∪E_causal∪E_ent。节点是细粒度 Event-Node n_i=⟨content c_i, timestamp τ_i, 语义 embedding v_i∈R^d, 元数据 A_i⟩。**核心设计:每条边 (i,j) 带一个可训练关系特征向量 e_ij∈R^R(R=4)**;有 LLM 边打分缓存时初始化为 [s_temp,s_sem,s_causal,s_ent],否则用主关系类型的 one-hot。【原文 §3.2】
+  1. **加权多关系图记忆**:有向多重图 \(G_t=(N_t,E_t)\),边按 4 种关系拆成 \(E_{temp}\cup E_{sem}\cup E_{causal}\cup E_{ent}\)。节点是细粒度 Event-Node \(n_i=\langle\text{content } c_i, \text{timestamp } \tau_i, \text{语义 embedding } v_i\in\mathbb{R}^d, \text{元数据 } A_i\rangle\)。**核心设计:每条边 \((i,j)\) 带一个可训练关系特征向量 \(e_{ij}\in\mathbb{R}^R(R=4)\)**;有 LLM 边打分缓存时初始化为 \([s_{temp},s_{sem},s_{causal},s_{ent}]\),否则用主关系类型的 one-hot。【原文 §3.2】
   2. **Query-conditioned 检索(4 步)**:
-     - *query 分析 + anchor 识别*:LLM 分类器抽"关系意图 T_q" + dense embedding;融合 dense 检索 / sparse 词法 / 时间过滤选 anchor 入口节点。
-     - *加权遍历*:对每条边把静态特征拼上运行时相似度与 query 意图 ẽ_ij=[e_ij; v_{Tq}; cos(q,v_i); cos(q,v_j)],过轻量 MLP(QueryRouter)得正标量结构权重 w_ij(q)=softplus(MLP([q; ẽ_ij]));**转移分数加性组合** S(n_j|n_i,q)=λ·cos(v_j,q)+(1−λ)·w_ij(q)——加性是为了让"结构关键但语义远的 bridge 节点"也能被走到(即便目标节点语义余弦为负);softmax 成遍历策略 π。训练时按 π 采样探索、推理时贪心/beam 扩展;hop 预算耗尽或命中证据则停。
+     - *query 分析 + anchor 识别*:LLM 分类器抽"关系意图 \(T_q\)" + dense embedding;融合 dense 检索 / sparse 词法 / 时间过滤选 anchor 入口节点。
+     - *加权遍历*:对每条边把静态特征拼上运行时相似度与 query 意图 \(\tilde{e}_{ij}=[e_{ij}; v_{Tq}; \cos(q,v_i); \cos(q,v_j)]\),过轻量 MLP(QueryRouter)得正标量结构权重 \(w_{ij}(q)=\mathrm{softplus}(\mathrm{MLP}([q; \tilde{e}_{ij}]))\);**转移分数加性组合** \(S(n_j|n_i,q)=\lambda\cdot\cos(v_j,q)+(1-\lambda)\cdot w_{ij}(q)\)——加性是为了让"结构关键但语义远的 bridge 节点"也能被走到(即便目标节点语义余弦为负);softmax 成遍历策略 \(\pi\)。训练时按 π 采样探索、推理时贪心/beam 扩展;hop 预算耗尽或命中证据则停。
      - *context 合成*:按 query 类型(时序/因果/分数)重排检索节点,塞满 context 预算。【原文 §3.3】
-  3. **RL 联合优化(MDP)**:状态=当前节点+query embedding+已访问 mask(防环);动作=选邻居;终止=到证据节点/死胡同/耗尽 hop 预算。**奖励 r_t = r_hit − λ_step·r_step − λ_timeout·r_timeout**(多跳题累加每个唯一证据命中);用 **REINFORCE + EMA baseline** 降方差,θ 同时含 QueryRouter 权重和边特征,梯度裁剪。【原文 §3.4】
-  4. **Anchor 正则(防漂移)**:边特征 warm-start 自 Phase1 分数,无约束优化会让它飘离初值 → 推理时新图用 Phase1 静态特征、但 router 在"飘过的特征"上训过 → 分布失配。加 **L2 anchor 正则** L_anchor=λ_anchor·Σ‖e_ij − e_ij^(0)‖²,总目标 L=−J(θ)+L_anchor,等价于"把特征空间探索约束向语义初值"的 constrained policy learning。【原文 §3.4 Eq.14-15】
-  5. **Co-evolution 稳定化**:边特征与 router 协同演化,用**非对称学习率 η_edge < η_router**——router 快速适应 query 偏好,边特征保守演化保住 Phase1 语义结构、避免不稳漂移。【原文 §3.4.1】
+  3. **RL 联合优化(MDP)**:状态=当前节点+query embedding+已访问 mask(防环);动作=选邻居;终止=到证据节点/死胡同/耗尽 hop 预算。**奖励 \(r_t = r_{hit} - \lambda_{step}\cdot r_{step} - \lambda_{timeout}\cdot r_{timeout}\)**(多跳题累加每个唯一证据命中);用 **REINFORCE + EMA baseline** 降方差,\(\theta\) 同时含 QueryRouter 权重和边特征,梯度裁剪。【原文 §3.4】
+  4. **Anchor 正则(防漂移)**:边特征 warm-start 自 Phase1 分数,无约束优化会让它飘离初值 → 推理时新图用 Phase1 静态特征、但 router 在"飘过的特征"上训过 → 分布失配。加 **L2 anchor 正则** \(L_{anchor}=\lambda_{anchor}\cdot\Sigma\|e_{ij} - e_{ij}^{(0)}\|^2\),总目标 \(L=-J(\theta)+L_{anchor}\),等价于"把特征空间探索约束向语义初值"的 constrained policy learning。【原文 §3.4 Eq.14-15】
+  5. **Co-evolution 稳定化**:边特征与 router 协同演化,用**非对称学习率 \(\eta_{edge} < \eta_{router}\)**——router 快速适应 query 偏好,边特征保守演化保住 Phase1 语义结构、避免不稳漂移。【原文 §3.4.1】
 
 - **逐组件必要性(消融 Table 4,LoCoMo,gpt-4o-mini)**:
   - Static Edge 0.698(Judge)/0.462(F1)→ 图结构有用但固定边语义不够;
@@ -75,7 +75,7 @@
 
 | 学什么信号 | 改什么 | 何时改 | 免梯度? | 记忆-技能生命周期 | 防遗忘机制 |
 |---|---|---|---|---|---|
-| 环境 reward(下游证据命中 r_hit − 步数/超时惩罚;**只需节点级证据目标**,非路径监督) | **边关系特征向量 e_ij(4维,可训练)** + **QueryRouter(MLP)权重**;**不改 backbone LLM、不改 logits**——只学"检索/遍历器" | **离线批量训练**(REINFORCE,5-fold CV;Phase2 零 LLM 调用);推理时检索器参数冻结、图按 read-generate-write 增长 | **混合**:检索器训练有梯度(REINFORCE 策略梯度);记忆内容写入/边初始打分由 LLM 免梯度产生 | 写入(Event-Node + 4 类边,LLM 初始打分)→检索(query 意图分类 + anchor + 加权遍历 top-path)→**未显式遗忘/淘汰**(图随交互增长,无删除机制)→未涉及跨 agent 共享 | **KL/L2 投影式 anchor 正则**:L2 把边特征约束向 Phase1 语义初值(防训练漂移→保泛化);**非对称学习率**(η_edge<η_router)保住语义结构。**无 merging/无几何共识/无几遗忘淘汰** |
+| 环境 reward(下游证据命中 \(r_{hit}\) − 步数/超时惩罚;**只需节点级证据目标**,非路径监督) | **边关系特征向量 \(e_{ij}\)(4维,可训练)** + **QueryRouter(MLP)权重**;**不改 backbone LLM、不改 logits**——只学"检索/遍历器" | **离线批量训练**(REINFORCE,5-fold CV;Phase2 零 LLM 调用);推理时检索器参数冻结、图按 read-generate-write 增长 | **混合**:检索器训练有梯度(REINFORCE 策略梯度);记忆内容写入/边初始打分由 LLM 免梯度产生 | 写入(Event-Node + 4 类边,LLM 初始打分)→检索(query 意图分类 + anchor + 加权遍历 top-path)→**未显式遗忘/淘汰**(图随交互增长,无删除机制)→未涉及跨 agent 共享 | **KL/L2 投影式 anchor 正则**:L2 把边特征约束向 Phase1 语义初值(防训练漂移→保泛化);**非对称学习率**(\(\eta_{edge}<\eta_{router}\))保住语义结构。**无 merging/无几何共识/无几遗忘淘汰** |
 
 - ⑦ **开源代码 + 框架/harness**:**已开源(MVP 版)** https://github.com/FredJiang0324/HAGE_MVPReview(已 `git ls-remote` 核验**真实可达**,main 分支 HEAD=ddc159d…)。框架:**纯 PyTorch 自研**(模块化图训练框架:node embedding + COO 边索引 + typed 边标签 + 关系边特征,GPU 加速遍历);优化器 **Adam**,策略 **REINFORCE + EMA baseline**;embedding **all-MiniLM-L6-v2**。**不使用 veRL/TRL/OpenRLHF 等 RLHF 框架**(自实现轻量 RL)。〔代码仅为 "MVP implementation",完整复现度待核——README/脚本未 clone 核对〕【原文 §3.5, 脚注1】
 

@@ -28,20 +28,20 @@
 
 ══ 第三层:怎么做 + 靠不靠谱 ══
 
-- **问题形式化**(§3.1):失败语料 \(F={(gi,τi,fi)}\)(目标、轨迹、失败标签),目标是为每条失败合成 hindsight 目标 ĝi 使 τi 成为 ĝi 的**有效正示范**。**有效 hindsight 目标定义(Def 3.1)**:(a)ĝ 蕴含的每个事实都被观测 {ot} 支持;(b)两个独立裁判 J1,J2 都给 c(ĝ,τ)≥θ。映射 Φ 把每条失败映成训练样本或拒绝(⊥);增广语料从 M 条成功最多长到 M+N。【原文 §3.1】
+- **问题形式化**(§3.1):失败语料 \(F={(gi,τi,fi)}\)(目标、轨迹、失败标签),目标是为每条失败合成 hindsight 目标 \(ĝ_i\) 使 \(τ_i\) 成为 \(ĝ_i\) 的**有效正示范**。**有效 hindsight 目标定义(Def 3.1)**:(a)\(ĝ\) 蕴含的每个事实都被观测 \(\{o_t\}\) 支持;(b)两个独立裁判 \(J_1,J_2\) 都给 \(c(ĝ,τ)≥θ\)。映射 \(Φ\) 把每条失败映成训练样本或拒绝(\(⊥\));增广语料从 \(M\) 条成功最多长到 \(M+N\)。【原文 §3.1】
 
 - **方法流水线**(Fig 2 四阶段,Algo 1 端到端):
-  1. **Stage 1 失败检测器**:给每条轨迹分配失败类型 ϕ∈{INCOMPLETE, CONSTRAINT_VIOLATION, WRONG_RESULT, TOOL_ERROR, HALLUCINATION, OFF_TOPIC}、可恢复 flag r、严重度权重 w。**两种模式**:rule-based(关键词词典,零成本)或 LLM-judge(JSON schema 输出)。**MQM 式严重度加权**:major 错误(推理矛盾/幻觉观测/灾难性工具误用)w<δ=0.3 → 丢弃;minor 错误 w∈[0.3,1] → 下传,w 用来在 Stage 4 加权 DPO loss。这一步把噪声重标从 5.9% 降到 2.9%。
+  1. **Stage 1 失败检测器**:给每条轨迹分配失败类型 \(ϕ∈\{INCOMPLETE, CONSTRAINT\_VIOLATION, WRONG\_RESULT, TOOL\_ERROR, HALLUCINATION, OFF\_TOPIC\}\)、可恢复 flag \(r\)、严重度权重 \(w\)。**两种模式**:rule-based(关键词词典,零成本)或 LLM-judge(JSON schema 输出)。**MQM 式严重度加权**:major 错误(推理矛盾/幻觉观测/灾难性工具误用)\(w<δ=0.3\) → 丢弃;minor 错误 \(w∈[0.3,1]\) → 下传,\(w\) 用来在 Stage 4 加权 DPO loss。这一步把噪声重标从 5.9% 降到 2.9%。
   2. **Stage 2 结果抽取器**:产出 REPLAYOUTCOME——"实际达成清单 + 关键观测(数字/实体/事实)",**只保留被观测证实的事实**,锚定 Stage 3 防幻觉。
-  3. **Stage 3 跨模型重标+验证**:relabeler J1 据 outcome + 原 prompt 风格合成 (ĝ, b_valid, rationale, c1),四约束(读着像真用户请求 / 每个断言被观测满足 / 不引用原失败 prompt / 复杂度匹配原 g)。**跨模型双裁判**:J1=gpt-4o-mini(T=0.3 首试/0.7 重试)、J2=Qwen2.5-72B-Instruct(T=0,schema 约束,vLLM)。要 c1≥θ 且 c2≥θ 才接受;最多 K=3 次重试;若都没过双裁判但有一次过单裁判 c1≥0.8θ 则保留 best-effort 兜底。
-  4. **Stage 4 数据打包(确定性)**:序列化成 **SFT**(两轮对话 [(user,ĝ),(assistant,ã)],ã 从 τ 重构 CoT,loss 按 w 缩放)/ **DPO**(chosen (ĝ,τ) vs rejected (gorig,τ),w 缩放 reward margin)/ **ShareGPT**(兼容 LLaMA-Factory / ms-swift / FastChat)。【原文 §3.2–3.6】
-  - **理论可信性(§3.7)**:Prop 3.1 完美裁判下每个接受对都是 oracle 目标条件策略支持内的正确样本;Cor 3.1.1 噪声裁判精度 p 下,相对 SFT-Success 的期望增益下界 \(p·Δ_perfect − (1−p)·ε\);对 MJ-X 的 p=0.971,只要 ε≤33·Δ_perfect 就为正。作者明确说这是**plausibility argument 而非部署保证**。【原文 §3.7】
+  3. **Stage 3 跨模型重标+验证**:relabeler J1 据 outcome + 原 prompt 风格合成 (ĝ, b_valid, rationale, c1),四约束(读着像真用户请求 / 每个断言被观测满足 / 不引用原失败 prompt / 复杂度匹配原 g)。**跨模型双裁判**:J1=gpt-4o-mini(T=0.3 首试/0.7 重试)、J2=Qwen2.5-72B-Instruct(T=0,schema 约束,vLLM)。要 \(c_1≥θ\) 且 \(c_2≥θ\) 才接受;最多 K=3 次重试;若都没过双裁判但有一次过单裁判 \(c_1≥0.8θ\) 则保留 best-effort 兜底。
+  4. **Stage 4 数据打包(确定性)**:序列化成 **SFT**(两轮对话 \([(user,ĝ),(assistant,ã)]\),\(ã\) 从 \(τ\) 重构 CoT,loss 按 \(w\) 缩放)/ **DPO**(chosen \((ĝ,τ)\) vs rejected \((g_{orig},τ)\),\(w\) 缩放 reward margin)/ **ShareGPT**(兼容 LLaMA-Factory / ms-swift / FastChat)。【原文 §3.2–3.6】
+  - **理论可信性(§3.7)**:Prop 3.1 完美裁判下每个接受对都是 oracle 目标条件策略支持内的正确样本;Cor 3.1.1 噪声裁判精度 \(p\) 下,相对 SFT-Success 的期望增益下界 \(p·Δ_perfect − (1−p)·ε\);对 MJ-X 的 \(p=0.971\),只要 \(ε≤33·Δ_{perfect}\) 就为正。作者明确说这是**plausibility argument 而非部署保证**。【原文 §3.7】
 
 - **逐组件必要性 / 消融**(§4.6):
   - *跨模型双裁判 MJ-X*:✔。比 MJ-S(同模型双温度)+0.5%、噪声 4.4%→2.9%;比 SJ +0.8–1.6%。证明模型级独立 > 温度独立。
   - *严重度加权*:✔(降噪 5.9%→2.9% 的另一半来源)。
   - *hindsight 重标本身 vs 仅标失败*:✔。SFT-Negative 仅 +0.4–0.8%(over SFT-Random),AgentHER +12–18% → 重标"救正向内容"是关键。
-  - *阈值 θ*:✔有扫描。θ*=0.5 在两变体上都最优,稳健超参(Fig 3c)。
+  - *阈值 \(θ\)*:✔有扫描。\(θ^*=0.5\) 在两变体上都最优,稳健超参(Fig 3c)。
   - *rule-based vs LLM 模式的端到端影响*:Stage1/2 提供零成本 rule-based 变体,但**正文未给"全 rule-based pipeline vs 全 LLM pipeline"的端到端质量对比**(只说 rule-based 是便宜替代)。【推断:依据=§3.2 描述两模式但 Table 1 用的是默认 LLM/MJ-X 配置】
 
 - **关键机制直觉**:HER 的精髓 = **把"想要什么"改成"做到了什么"**,从而让失败有了正确的监督目标。LLM 版的难点全在"**做到了什么**"的判定——多步工具交互里没有现成的"达成目标向量",得靠 LLM 读轨迹反推,而这正是幻觉重灾区。AgentHER 的两道闸(outcome 抽取只留观测证实的事实 + 跨模型双裁判)就是把"反推达成"这步的噪声压住。另一直觉(§2.4):AgentHER 与 test-time scaling **正交**——它降低每个任务的固有失败概率 pi(把地板抬高),test-time compute 再在更强起点上压榨覆盖度。【原文 §3, §2 test-time 段】
@@ -50,8 +50,8 @@
   - 数据/设置:**WebArena**(812 任务,严格 task-disjoint 划分:WA-TRAIN 612 仅采集 / WA-HELDOUT 200 仅评测;采 3000 失败 + 500 成功)、**ToolBench**(16464 任务/49 API,G1/G2/G3;采 5000 失败 + 2000 成功)。采集器故意用**弱模型 GPT-3.5-turbo**(产更丰富失败),裁判是更强模型且不参与采集。模型:GPT-4o(OpenAI 微调 API)、Qwen2.5-72B/7B、LLaMA-3.1-8B;开源模型用 **LoRA**(rank16, α32, 3 epoch, 8×A100)。另报 GPT-4o-ICL(8 shot,不微调)作可复现替代。3 seeds,std<0.5。【原文 §4.1】
   - baseline:Base / SFT-Random(同 3k 失败、不重标,等量对照)/ Rejection-Sampling / SFT-Success(Δ 参照)/ SFT-Negative / ETO / ECHO-offline / AWM;推理时参照(权重不变):Reflexion、ExpeL。AgentHER 变体:SJ / MJ-S / MJ-X(默认)。
   - **支撑核心主张的关键实验**(Table 1):WA-HELDOUT 成功率,AgentHER-MJ-X:GPT-4o 29.9 / Qwen-72B 37.7 / Qwen-7B 26.5 / LLaMA-8B 24.8,相对 SFT-Success **+7.6–8.7%**;ToolBench pass@1 相对 SFT-Success **+7.6–11.4%**;相对最强基线 AWM **+3.0–6.2%**。**小模型收益更大**(7B/8B 在 ToolBench +10.7–11.4% > 72B +8.1% > GPT-4o +7.6%),1.5B 近翻倍(6.4→12.0)。
-  - **数据效率/扩展**(Fig 3):AgentHER-SJ 用 **50% 成功示范**就达 full-SFT-Success(**2× 效率**),MJ-X 在每个数据点都更高;失败量 **log-linear 扩展**(SFT-Success 无法吃更多失败);θ*=0.5 稳健。**跨任务迁移**:WA-TRAIN 训的 MJ-X 零样本评 ToolBench 仍比 SFT-Success +9.5% → 迁移的是**规划能力**而非记住的任务描述。
-  - **成本审计**(Table 2):3000 失败,MJ-X 每接受对 \$1.4·10⁻³;多裁判比单裁判 +\$1.20(+67%)/+9.7min 换 94.1→97.1% 精度。重标+LoRA 合计 \$7.18/4.8h,**LoRA 占 wall-clock 大头、API 占 $ 大头**。2× 样本效率省下"从头采集 50% 成功示范"的成本。
+  - **数据效率/扩展**(Fig 3):AgentHER-SJ 用 **50% 成功示范**就达 full-SFT-Success(**2× 效率**),MJ-X 在每个数据点都更高;失败量 **log-linear 扩展**(SFT-Success 无法吃更多失败);\(θ^*=0.5\) 稳健。**跨任务迁移**:WA-TRAIN 训的 MJ-X 零样本评 ToolBench 仍比 SFT-Success +9.5% → 迁移的是**规划能力**而非记住的任务描述。
+  - **成本审计**(Table 2):3000 失败,MJ-X 每接受对 \(\(1.4·10^{-3}\);多裁判比单裁判 +\)1.20(+67%)/+9.7min 换 94.1→97.1% 精度。重标+LoRA 合计 \$7.18/4.8h,**LoRA 占 wall-clock 大头、API 占 $ 大头**。2× 样本效率省下"从头采集 50% 成功示范"的成本。
   - *baseline 公平性*:**SFT-Random 用同一批 3000 失败(不重标)= 严格等量对照**,这点做得很扎实;严格 task-disjoint + 环境 reset + 3 seeds,训练/测试隔离清楚。
   - *"看着强但没回答核心"的隐患*:① 采集器是 GPT-3.5-turbo,**与被微调模型(GPT-4o 等)不同源**——好处是隔离了"采集器解答泄漏",但意味着重标数据反映的是"弱模型的失败分布",对强模型是否最优可议;② 目标分布偏移(会不会放大高频任务类型)作者承认是 concern,放 §5.4 实证处理(本次未读到该节细节)。【推断:依据=§4.1 采集器设定 + §3.7 goal-distribution 段】
 
@@ -72,11 +72,11 @@
 
 | 学什么信号 | 改什么 | 何时改 | 免梯度? | 记忆-技能生命周期 | 防遗忘机制 |
 |---|---|---|---|---|---|
-| 自身**失败轨迹**(被丢弃的)+ 跨模型双裁判合成的 hindsight 目标 ĝ;严重度权重 w 自失败检测器 | **参数**(用重标出的 SFT/DPO 数据微调,开源模型走 LoRA) | **离线批量**(一次性把历史失败转成训练语料 → 单轮微调;非在线) | **否**(最终是有梯度的 SFT/DPO 微调;重标 pipeline 本身免梯度) | 失败轨迹→重标为 (ĝ,τ) 训练对→打包 SFT/DPO/ShareGPT→喂微调;无运行时持久记忆库 | **不直接处理**(离线单轮微调,无显式防遗忘;靠 LoRA 低秩 + 与成功数据混合间接限制偏移)【推断:依据=方法为离线 SFT/DPO,无 KL/merging 等机制】 |
+| 自身**失败轨迹**(被丢弃的)+ 跨模型双裁判合成的 hindsight 目标 \(ĝ\);严重度权重 \(w\) 自失败检测器 | **参数**(用重标出的 SFT/DPO 数据微调,开源模型走 LoRA) | **离线批量**(一次性把历史失败转成训练语料 → 单轮微调;非在线) | **否**(最终是有梯度的 SFT/DPO 微调;重标 pipeline 本身免梯度) | 失败轨迹→重标为 \((ĝ,τ)\) 训练对→打包 SFT/DPO/ShareGPT→喂微调;无运行时持久记忆库 | **不直接处理**(离线单轮微调,无显式防遗忘;靠 LoRA 低秩 + 与成功数据混合间接限制偏移)【推断:依据=方法为离线 SFT/DPO,无 KL/merging 等机制】 |
 
 - ⑦ **开源代码 + 框架/harness**:**已开源** — GitHub **https://github.com/alphadl/AgentHER**(摘要末 + §1 + PDF 双链接,明确)。**无 RL 训练框架**(是数据增广 pipeline);微调侧开源模型用 **LoRA**;产出格式**兼容 LLaMA-Factory / ms-swift / FastChat**(ShareGPT 格式)。裁判用 gpt-4o-mini(API)+ Qwen2.5-72B-Instruct(**vLLM**, schema 约束解码);环境 WebArena / ToolBench 标准 harness。【原文 摘要, §3.5, §3.6, §4.1】〔代码仓未 clone 核验,以正文链接为准〕
 
-- 💰 **资源/成本与可扩展性**:**成本审计是亮点**——3000 失败重标 **\$2.98 / ~26min**(3.27–4.27 次 LLM 调用/轨迹),每接受对 **\$1.4·10⁻³**;MJ-X 比 SJ 多 \$1.20/+9.7min 换精度。重标+LoRA 合计 \$7.18/4.8h(LoRA: 4.4h×8 GPU×\$1.05/h)。**2× 样本效率**省采集成本。可扩展性:失败量 log-linear 扩展;模型 1.5B–72B 均受益(小模型更甚)。【原文 §4.3, §4.4, §4.5, Table 2】
+- 💰 **资源/成本与可扩展性**:**成本审计是亮点**——3000 失败重标 **\$2.98 / ~26min**(3.27–4.27 次 LLM 调用/轨迹),每接受对 **\(\(1.4·10^{-3}\)**;MJ-X 比 SJ 多 \)1.20/+9.7min 换精度。重标+LoRA 合计 \$7.18/4.8h(LoRA: 4.4h×8 GPU×\$1.05/h)。**2× 样本效率**省采集成本。可扩展性:失败量 log-linear 扩展;模型 1.5B–72B 均受益(小模型更甚)。【原文 §4.3, §4.4, §4.5, Table 2】
 
 - 🎯 **对"探索-巩固(探索→巩固)"idea 对标**:**支撑(数据侧)+ 可借组件,但路线偏离子(离线、改目标而非纠动作)**。
   - *与 TSRD 的关系*:AgentHER 也是"从失败里榨监督",但**它不纠正轨迹/动作,而是给失败配一个它本就满足的新目标**——是"换目标让失败变正样本",与 TSRD 的"回溯到关键步纠正动作"是**不同的失败再利用范式**(目标重标 vs 动作纠正)。
@@ -90,10 +90,10 @@
 - 🖼 **关键图 top-2**:
 
   ![图2-AgentHER 四阶段重标流水线](../figures/agenther_fig2.png)
-  这是**原文 Figure 2**(方法主图):Failed Trajectory → Stage1 失败检测器(rule/LLM,不可恢复则丢)→ Stage2 结果抽取器 → Stage3 跨模型重标+验证(两个独立 LLM,c<θ 重试≤3×)→ Stage4 确定性数据打包 → SFT/DPO/ShareGPT。选它因为一图说清"失败→过滤→抽达成→跨模型重标→出训练数据"的完整离线管线与两道质量闸。
+  这是**原文 Figure 2**(方法主图):Failed Trajectory → Stage1 失败检测器(rule/LLM,不可恢复则丢)→ Stage2 结果抽取器 → Stage3 跨模型重标+验证(两个独立 LLM,\(c<θ\) 重试 ≤3 次)→ Stage4 确定性数据打包 → SFT/DPO/ShareGPT。选它因为一图说清"失败→过滤→抽达成→跨模型重标→出训练数据"的完整离线管线与两道质量闸。
 
   ![图1-丢弃失败 vs 重标失败(数据浪费动机)](../figures/agenther_fig1.png)
-  这是**原文 Figure 1**(动机图):左"Without AgentHER"5 条轨迹只留 2 条成功、其余丢弃(2 训练样本);右"With AgentHER"把 3 条失败 relabel 成可用样本(5 训练样本,≈3.7× 语料),每接受对成本 ≈\$1.4·10⁻³。选它因为它把全文动机"标准流水线浪费 60–75% 数据、hindsight 重标把失败救回"一图点透。
+  这是**原文 Figure 1**(动机图):左"Without AgentHER"5 条轨迹只留 2 条成功、其余丢弃(2 训练样本);右"With AgentHER"把 3 条失败 relabel 成可用样本(5 训练样本,≈3.7× 语料),每接受对成本 ≈$\(1.4·10^{-3}\)。选它因为它把全文动机"标准流水线浪费 60–75% 数据、hindsight 重标把失败救回"一图点透。
 
 ──────────
 **幂等状态**:本文 analysis 首次产出。机制类型 = 失败轨迹**离线 hindsight 目标重标 → SFT/DPO 数据 → 微调内化**(**有梯度改参数、LoRA**、离线批量、无在线记忆);核心质量阀 = 跨模型双裁判 + 严重度加权。抽到 2 图:是(Figure 2 四阶段流水线 + Figure 1 数据浪费动机)。**代码:github.com/alphadl/AgentHER(已开源);数据格式兼容 LLaMA-Factory/ms-swift/FastChat;无 RL 框架。**

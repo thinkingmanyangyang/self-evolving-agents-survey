@@ -23,7 +23,7 @@
 ══ 第三层：怎么做 + 框架/分类法细节(综述核心硬货) ══
 
 - **统一概念框架(§3,全篇骨架,对应 Fig 3 闭环图)**——**四组件 + 一个优化方程**：
-  1. **System Inputs(I,§3.2)**:定义问题设置。**两档**:**Task-Level**(\(I={T, D_train}\) 甚至 +D_test;无标注时**动态合成 surrogate 训练样本**——直接关联本调研 self-generated data 线)/ **Instance-Level**(\(I={x, y, C}\),只优化某单个实例的解,如 AlphaEvolve/Novikov 2025)。
+  1. **System Inputs(I,§3.2)**:定义问题设置。**两档**:**Task-Level**(\(I={T, D_train}\) 甚至 +\(D_{test}\);无标注时**动态合成 surrogate 训练样本**——直接关联本调研 self-generated data 线)/ **Instance-Level**(\(I={x, y, C}\),只优化某单个实例的解,如 AlphaEvolve/Novikov 2025)。
   2. **Agent System(A,§3.3)**:被优化对象,可拆 LLM / prompt / memory / tool 等。**多数工作只优化单组件**;少数**联合优化**(单 agent 里 LLM+prompt;多 agent 里 prompt+topology)。
   3. **Environment(§3.4)**:提供执行上下文 + **反馈信号**(任务特定 proxy metrics:accuracy/F1/success rate;无 ground truth 时用 **LLM-based evaluators** 给 proxy/文本反馈)。
   4. **Optimiser(P,§3.5)**:**核心组件**。形式化 \(A* = argmax_{A∈S} O(A; I)\)(Eq.1)。由二元组定义:

@@ -22,15 +22,15 @@
 ══ 第三层：怎么做 + 靠不靠谱 ══
 
 - **方法流水线(两时间尺度,对应 Fig 2 的 A→B→C→D)**：
-  1. **记忆库结构(§3, Fig 1A)**：typed 持久库 B,每条目 e=(name n, body s, **provenance 链 L=指向源轨迹 T 的链接**),类型为 **semantic(事实知识)** 或 **procedural(how-to 技能)**。另有**轨迹日志 T** 存原始 session 供溯源(task agent 决策时**不检索 T**,但巩固器可用 T 当证据)。
+  1. **记忆库结构(§3, Fig 1A)**：typed 持久库 \(B\),每条目 \(e=(\)name \(n\), body \(s\), **provenance 链 \(L=\)指向源轨迹 \(T\) 的链接**\()\),类型为 **semantic(事实知识)** 或 **procedural(how-to 技能)**。另有**轨迹日志 \(T\)** 存原始 session 供溯源(task agent 决策时**不检索 \(T\)**,但巩固器可用 \(T\) 当证据)。
   2. **两个互补算子(Eq.1)**：**Read**(在线,frozen task agent 用)= \(Top-K_{e∈B} cos(ϕ(q), ϕ(n_e⊕s_e))\)(frozen 句编码器 ϕ,按 token 预算取 top-K);**Write**(离线,巩固器学)= \((B\R) ∪ C_θ(R, T_R)\) —— 把区域 R 换成合成的替换集 S。
   3. **快采集(§4.1)**：per-session **prompted writer**(固定)每个 session 后发出 typed 条目,**只追加、带 provenance、不搜库/不比较/不重写** → 偏向 plasticity,即时廉价记录。
-  4. **慢巩固=区域重写(§4.1)**：给定区域 R⊆B 及其溯源轨迹 T_R,巩固器 C_θ 做**有界工具 rollout**(固定回合预算,工具 = search_memory / check_memory / get_source_trace / synthesize),每步条件于 (R, T_R) + 历史工具调用,直到 terminate 或耗尽预算 → 合成替换集 S。**区域替换语义**使 abstraction / dedup / 解矛盾 / **省略式遗忘** 成为默认(旧条目当证据,只有被重合成进 S 才存活)。
+  4. **慢巩固=区域重写(§4.1)**：给定区域 \(R\subseteq B\) 及其溯源轨迹 \(T_R\),巩固器 \(C_\theta\) 做**有界工具 rollout**(固定回合预算,工具 = search_memory / check_memory / get_source_trace / synthesize),每步条件于 \((R, T_R)\) + 历史工具调用,直到 terminate 或耗尽预算 → 合成替换集 S。**区域替换语义**使 abstraction / dedup / 解矛盾 / **省略式遗忘** 成为默认(旧条目当证据,只有被重合成进 S 才存活)。
   5. **部署(§4.2)**：在线时每 k 个 session 触发一次巩固,**工作区域 R = 本区间新写入的条目 ∪ 本区间被 task agent 检索过的旧条目**(新证据 + 当前真在影响行为的旧记忆),区域外条目不动(但将来若被检索可进入未来区域)。
-  6. **训练(§4.3, Algorithm 1)**：离线轨迹池上采 J 条 support 轨迹 → 组成区域 R(+provenance T_R)→ 巩固器采 **G 个 rollout**,每个产出候选 S_g → **局部评测 \(B*_g=S_g\)** → 算奖励 → **GRPO 更新 θ**。**只更新巩固器参数**;writer/retriever/task agent/记忆 schema/token 预算全程冻结(干净隔离巩固器的贡献)。巩固器从 **Qwen3-14B** 初始化。
+  6. **训练(§4.3, Algorithm 1)**：离线轨迹池上采 J 条 support 轨迹 → 组成区域 \(R\)(+provenance \(T_R\))→ 巩固器采 **G 个 rollout**,每个产出候选 \(S_g\) → **局部评测 \(B*_g=S_g\)** → 算奖励 → **GRPO 更新 \(\theta\)**。**只更新巩固器参数**;writer/retriever/task agent/记忆 schema/token 预算全程冻结(干净隔离巩固器的贡献)。巩固器从 **Qwen3-14B** 初始化。
 - **奖励设计(§4.3, Eq.2-3,Fig 2D 的精华)**：\(r_g = U_V(S_g) + α·r_cf(S_g; V)\)。
-  - **U_V(S)** = 下游效用 = frozen task agent 带 S 在评测任务集 V 上的平均 Return。
-  - **r_cf(S_g;V)** = **反事实效用** = \(U_V(S_g) − E_{Ŝ∼q_ρ(·|S_g)}[U_V(Ŝ)]\),其中 q_ρ **随机掩码掉 S_g 中固定比例 ρ 的条目**(MC 估计期望)。直觉:**掩掉承重条目→性能掉(高信用);掩掉冗余条目→几乎无变化(低信用);掩掉有害条目→性能升(负信用)**。⇒ GRPO 偏好"既提下游效用、又最小冗余"的替换集。
+  - **\(U_V(S)\)** = 下游效用 = frozen task agent 带 S 在评测任务集 V 上的平均 Return。
+  - **\(r_{cf}(S_g;V)\)** = **反事实效用** = \(U_V(S_g) − E_{Ŝ∼q_ρ(·|S_g)}[U_V(Ŝ)]\),其中 \(q_\rho\) **随机掩码掉 \(S_g\) 中固定比例 \(\rho\) 的条目**(MC 估计期望)。直觉:**掩掉承重条目→性能掉(高信用);掩掉冗余条目→几乎无变化(低信用);掩掉有害条目→性能升(负信用)**。⇒ GRPO 偏好"既提下游效用、又最小冗余"的替换集。
 - **逐组件必要性(消融充分,§5.4 + Table 2)**：
   - **写-only vs untrained vs full(Table 2)**:**untrained**(同区域重写机制+工具 rollout+溯源,但**不 GRPO 训**)已拿下大部分**库体积缩减(比 writer-only 小 6-11×)** → 证明**区域重写本身是紧凑性的主因**(替换即压缩,先于学习);**GRPO 训练**再提升重写**质量与选择性**——ScienceWorld +9.7pp、WebArena +5.7pp(SR)。
   - **反事实项 r_cf(Fig 3c/3d)**:无 r_cf 时原始分仍升但**库迅速膨胀**;有 r_cf 时库**先涨后缩**、任务性能不降 → 证明 r_cf 确实"压冗余不损性能"。
@@ -39,7 +39,7 @@
 - **关键机制直觉**：核心是"**把'记下来'和'整理成可复用知识'分到两个速度上,并让'整理'这件事由下游成败来教**"。直觉:writer 像随手记的便签(快、全、乱);巩固器像睡觉时大脑把白天的便签重写成几条精炼笔记(慢、少、抽象),而"重写得好不好"由"第二天用这些笔记办事顺不顺"来打分。"整块重写"则保证"没被重写进去的便签自动消失",天然实现遗忘/去重。
 - **实验与证据**：
   - **数据集/环境**:**ScienceWorld**(文本科学实验,**唯一训练源**)、**ALFWorld**(家务指令,held-out)、**WebArena**(网页导航 shopping/admin/gitlab,held-out)。
-  - **模型**:frozen task agent = Qwen3.5-9B(ALF/Sci)/ Gemini-3-flash-preview(WebArena);writer = Qwen3-14B(ALF/Sci)/ Gemini-3.1-flash-lite(WebArena);**巩固器 C_θ 从 Qwen3-14B 初始化,只在 ScienceWorld 训,三域无更新应用**(含 writer-backbone 跨越)。
+  - **模型**:frozen task agent = Qwen3.5-9B(ALF/Sci)/ Gemini-3-flash-preview(WebArena);writer = Qwen3-14B(ALF/Sci)/ Gemini-3.1-flash-lite(WebArena);**巩固器 \(C_\theta\) 从 Qwen3-14B 初始化,只在 ScienceWorld 训,三域无更新应用**(含 writer-backbone 跨越)。
   - **支撑核心主张的关键实验 = Table 1(A 连续部署 + B 固定库受控)**:**(A)** ScienceWorld 41.1% SR(超最强 baseline UMEM 34.1% **+7.0pp**,超最强 prompted ReasoningBank +10.2pp),AUC 0.353→0.411(增益贯穿全流而非只在末尾);ALFWorld 60.2%(>UMEM 58.4 / Mem-α 57.4);WebArena 52.3% 领先。**记忆成本**:ScienceWorld 6.9k tok(vs UMEM 80.9k / ReasoningBank 155.1k);WebArena 927 tok(vs LightMem 370k / Mem0 43.4k)。**(B) 受控固定库**:ALFWorld 72.7% / ScienceWorld 44.3%,均领先(但 margin 更窄,因受控去掉了累积检索竞争)。Fig 3a:Auto-Dreamer 处在"成功率 vs 检索成本"的 **Pareto 前沿**。
   - **baseline 公平吗**:【原文】10 个 baseline 跨 7 个家族(no-memory / Reflexion-ExpeL / AWM-Memp / ReasoningBank-Mem0 / **LightMem 最近架构对照** / Mem-α-UMEM RL writers),同域共享 frozen task agent,writer 用同等强的 LLM(确保 baseline 不因弱记忆 LLM 吃亏)→ **较公平**。注脚诚实说明 UMEM/Mem-α 在 WebArena 因 context window 装不下而缺值(†),未为对齐而重训。
   - **"看着强但没回答核心问题"的隐患**【推断】:① **U_V 与 r_cf 都用同一评测任务集 V 当"下游"**,且 task agent 是 frozen 的特定模型——巩固器可能**过拟合"对这个 task agent 有用的抽象"**,换 task agent 是否还成立未充分验(虽 writer-backbone 跨越验了一部分迁移)。② **只在 ScienceWorld 单源训**就声称跨域,迁移到 ALFWorld/WebArena 的增益**部分可能来自"通用去重/压缩"而非"学到的领域抽象"**——untrained 已拿下大半压缩(Table 2)正是此点的旁证。
@@ -59,7 +59,7 @@
 
 | 学什么信号 | 改什么 | 何时改 | 免梯度? | 记忆-技能生命周期 | 防遗忘机制 |
 |---|---|---|---|---|---|
-| **环境 reward(复合:下游任务 Return U_V + 反事实效用 r_cf[随机掩码估"承重/冗余/有害"])** | **记忆库 B 的内容**(巩固器 C_θ 重写区域 R→替换集 S);**模型侧只训巩固器参数 θ**,task agent/writer/retriever 全冻结 | **慢巩固:离线/周期(每 k session 一次,batch RL 训练);快采集:在线 per-session(append-only)** | **否(巩固器训练)**:GRPO 梯度训 C_θ;**采集侧免梯度**(prompted writer);整体是"梯度训一个工具使用策略" | **写入=快 writer append→检索=frozen Read(top-K cos)→巩固=慢 C_θ 区域重写→淘汰=省略式遗忘(没被重合成进 S 即消失)+ 去重 + 解矛盾**;provenance 链全程可溯源 | **本文的"防遗忘"是反向的——刻意"可控遗忘"以求紧凑**:区域替换使遗忘/去重成为默认;**反事实项 r_cf 保护"承重"记忆不被误删**(高信用),压制冗余/有害;无几何/merging/KL 投影/参数隔离(因不动模型参数)。**注意:其"省略式遗忘"对位置敏感任务会造成有害的"细节遗忘"(Pattern 3)** |
+| **环境 reward(复合:下游任务 Return \(U_V\) + 反事实效用 \(r_{cf}\)[随机掩码估"承重/冗余/有害"])** | **记忆库 \(B\) 的内容**(巩固器 \(C_\theta\) 重写区域 \(R\)→替换集 \(S\));**模型侧只训巩固器参数 \(\theta\)**,task agent/writer/retriever 全冻结 | **慢巩固:离线/周期(每 k session 一次,batch RL 训练);快采集:在线 per-session(append-only)** | **否(巩固器训练)**:GRPO 梯度训 \(C_\theta\);**采集侧免梯度**(prompted writer);整体是"梯度训一个工具使用策略" | **写入=快 writer append→检索=frozen Read(top-K cos)→巩固=慢 \(C_\theta\) 区域重写→淘汰=省略式遗忘(没被重合成进 S 即消失)+ 去重 + 解矛盾**;provenance 链全程可溯源 | **本文的"防遗忘"是反向的——刻意"可控遗忘"以求紧凑**:区域替换使遗忘/去重成为默认;**反事实项 \(r_{cf}\) 保护"承重"记忆不被误删**(高信用),压制冗余/有害;无几何/merging/KL 投影/参数隔离(因不动模型参数)。**注意:其"省略式遗忘"对位置敏感任务会造成有害的"细节遗忘"(Pattern 3)** |
 
 - ⑦ **开源代码 + 框架/harness**：**框架明确(基于他人开源)**——【原文 Appendix B.3 + 脚注明写】"For our agentic RL environments, we build upon **OpenTinker**(https://github.com/open-tinker/OpenTinker,提供 ALFWorld/ScienceWorld 统一任务配置);Our training infrastructure is built on top of **verl**(https://github.com/volcengine/verl)";并称"We report verbatim text from **opentinker/memory_training/** and **opentinker/environment/**"。⇒ **训练框架 = veRL(volcengine/verl)做 GRPO + OpenTinker 提供 agentic RL 环境/任务配置**;**Auto-Dreamer 自身的训练/记忆代码看来托管在 OpenTinker 仓的 memory_training/ 与 environment/ 子目录**〔待核:OpenTinker 仓是否已公开含 Auto-Dreamer 完整实现,待 P3 用 WebSearch/clone 核验;按"PDF 写到就如实记"——框架 = veRL + OpenTinker 可定;Auto-Dreamer 专用代码 URL 以 OpenTinker 子目录为线索〕。
 - 💰 **资源/成本与可扩展性**：【原文 Table 6 给训练超参(ScienceWorld GRPO run):有 rollout group size N、batch size、训练步数、学习率、采样温度/top-p,但**正文未列精确 GPU 数/时长**】。**部署侧成本极低**:这正是卖点——活跃记忆库小 6-12×(ScienceWorld 6.9k vs 155k tok;WebArena 927 vs 370k tok),**检索时上下文成本大降**;巩固是**周期性离线**(每 k session)摊销。巩固器 14B,可学习,一次训练多域复用(省再训)。
@@ -69,7 +69,7 @@
 - 🖼 **关键图 top-2** [light]：
 
 ![图1-Auto-Dreamer 全流程总览:采集/区域重写巩固/RL 训练/反事实信用分配(原文 Figure 2)](../figures/auto_dreamer_fig1.png)
-· 这是**原文 Figure 2**(方法主图,已裁剪上半 4 面板)。**(A)** frozen writer 把每条轨迹 τ_t 的 typed 条目 append 进库 B;**(B)** 每 k session,巩固器 C_θ 经工具 rollout(search/check/get_source_trace/synthesize)把区域 R 重写成替换集 S → 更新库;**(C)** 训练:G 个 group rollout 产候选 {S_g},在评测任务 V 上打分,**GRPO 用 \(r_g=U_V(S_g)+α·r_cf\) 更新 θ**;**(D)** 反事实项 r_cf 对比 S_g 与掩码变体,给"有用"高信用、"重复"低信用、"有害"负信用。选它因为它一张图完整讲清本文**两时间尺度 + 区域重写 + RL 训练 + 反事实信用**四件核心机制——正是"可学习离线巩固"的全貌,对本项目"探索-巩固"最具参照价值。
+· 这是**原文 Figure 2**(方法主图,已裁剪上半 4 面板)。**(A)** frozen writer 把每条轨迹 \(\tau_t\) 的 typed 条目 append 进库 \(B\);**(B)** 每 k session,巩固器 \(C_\theta\) 经工具 rollout(search/check/get_source_trace/synthesize)把区域 \(R\) 重写成替换集 \(S\) → 更新库;**(C)** 训练:G 个 group rollout 产候选 \(\{S_g\}\),在评测任务 V 上打分,**GRPO 用 \(r_g=U_V(S_g)+α·r_cf\) 更新 \(\theta\)**;**(D)** 反事实项 \(r_{cf}\) 对比 \(S_g\) 与掩码变体,给"有用"高信用、"重复"低信用、"有害"负信用。选它因为它一张图完整讲清本文**两时间尺度 + 区域重写 + RL 训练 + 反事实信用**四件核心机制——正是"可学习离线巩固"的全貌,对本项目"探索-巩固"最具参照价值。
 
 ![图2-记忆效率/奖励消融/巩固器分析:成功率-成本 Pareto 前沿等(原文 Figure 3)](../figures/auto_dreamer_fig2.png)
 · 这是**原文 Figure 3**(核心证据+分析图)。**(a)** 成功率 vs 检索时记忆 token 成本——**Auto-Dreamer(红星)独占左上角 Pareto 前沿**(高成功率 + 小记忆),逼近它成功率的 baseline 都要大得多的库;**(b)** 库增长:多数 baseline 随任务流单调膨胀,**Auto-Dreamer 维持紧凑**;**(c,d)** 反事实奖励 r_cf 在保持性能的同时约束库膨胀;**(e)** provenance fan-in 峰值=5(多源抽象);**(f)** 巩固节奏 sweep。选它因为它**量化坐实了本文双主张——"既更准又更省"**,且 (b) 的"baseline 库爆炸 vs Auto-Dreamer 压平"最直观地展示"可学习巩固"对抗记忆膨胀的价值。

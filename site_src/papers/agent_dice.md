@@ -5,7 +5,7 @@
 
 ══ 第一层:一眼看懂 ══
 
-- 🟦 **TL;DR**:LLM agent 连续学多个新任务(先学 GUI 任务 A,再学 B、C……)时会"学了新的忘旧的"(灾难性遗忘),这就是 stability(稳)-plasticity(可塑)两难。Agent-Dice 的核心主张:**这个两难本质上是因为没把"任务间共享的公共知识"和"任务特有、互相打架的冲突知识"分开**。它的做法是一个**纯后处理的参数融合(模型 merging)框架**:先把每个任务各自单独 SFT 得到一个"任务向量"τ_k = θ_k − θ_pre(微调后参数减去原始参数);然后**逐参数维度(element-wise)**做两步——① **几何共识过滤**:看 K 个任务在这一维上的更新符号,符号占多数的留下、少数派(冲突)直接清零(剪掉冲突梯度);② **曲率/显著度加权**:在留下的"同号阵营"里,用每个任务该维更新的绝对值 |τ_k,i| 过一个 masked Softmax 当权重(更新幅度大=该处曲率高/置信高,给更大权重)。两步加权求和后加回 θ_pre 得到融合模型。结果:在 GUI agent(AITZ/AndroidControl/GUI-Odyssey)和 tool-use agent(ToolACE 切 4 子集)上 AvgZ 最高,且**融合只花约 1 分钟 GPU / 10 分钟 CPU**,几乎零额外训练开销。【原文 摘要+§1+§3+§4】
+- 🟦 **TL;DR**:LLM agent 连续学多个新任务(先学 GUI 任务 A,再学 B、C……)时会"学了新的忘旧的"(灾难性遗忘),这就是 stability(稳)-plasticity(可塑)两难。Agent-Dice 的核心主张:**这个两难本质上是因为没把"任务间共享的公共知识"和"任务特有、互相打架的冲突知识"分开**。它的做法是一个**纯后处理的参数融合(模型 merging)框架**:先把每个任务各自单独 SFT 得到一个"任务向量"\(\tau_k = \theta_k - \theta_{pre}\)(微调后参数减去原始参数);然后**逐参数维度(element-wise)**做两步——① **几何共识过滤**:看 K 个任务在这一维上的更新符号,符号占多数的留下、少数派(冲突)直接清零(剪掉冲突梯度);② **曲率/显著度加权**:在留下的"同号阵营"里,用每个任务该维更新的绝对值 \(|\tau_{k,i}|\) 过一个 masked Softmax 当权重(更新幅度大=该处曲率高/置信高,给更大权重)。两步加权求和后加回 \(\theta_{pre}\) 得到融合模型。结果:在 GUI agent(AITZ/AndroidControl/GUI-Odyssey)和 tool-use agent(ToolACE 切 4 子集)上 AvgZ 最高,且**融合只花约 1 分钟 GPU / 10 分钟 CPU**,几乎零额外训练开销。【原文 摘要+§1+§3+§4】
 
 - **最巧的一步**:**Stage 1 的"逐参数符号共识投票"**——抽掉它(消融 w/o Stage 1,Fig 3/4),agent 就学不到精确的跨任务公共知识、性能塌。它把"merging"从"无脑平均/低秩近似"升级为"先按符号选阵营再加权",直接对应它对遗忘根因的诊断(冲突=同一维不同任务符号相反,Eq.1)。注意:这一步**几乎就是 TIES-Merging 的 sign-elect 步骤**(符号占多数的方向留下),Agent-Dice 把它套到"agent 持续学习"场景并配上曲率加权 + 一套一阶泰勒/Hoeffding/最大熵的理论包装。【原文 §3.3 Stage1, §5.1, Eq.1/5】
 
@@ -31,11 +31,11 @@
 ══ 第三层:怎么做 + 靠不靠谱 ══
 
 - **方法流水线(纯后处理融合,对应 Figure 2,4 步)**:
-  1. **各任务独立微调 → 任务向量**:对 K 个领域(如 GUI 的 AITZ/AC/GUI-Odyssey,或 tool-use 的 4 个子集)各自从同一 θ_pre 出发 SFT 得 θ_k,算 τ_k = θ_k − θ_pre。【原文 §3.1】
-  2. **Stage 1 — 几何共识过滤(逐参数二值 mask,保稳)**:对第 i 维,令符号指示 s_k,i=1(τ_k,i≥0),正票数 V_i=Σ_k s_k,i;阈值 δ=K/2。若 V_i>δ → 活跃集 S_i={符号为正的任务};若 V_i<K−δ → S_i={符号为负的任务};否则(打平)→ 全员保留。不在 S_i 的任务该维权重强制为 0(剪掉冲突)。【原文 §3.3 Eq.5】
-  3. **Stage 2 — 曲率/显著度加权(masked Softmax,保塑)**:对 S_i 内任务,w_k,i = exp(|τ_k,i|) / Σ_{j∈S_i} exp(|τ_j,i|);不在 S_i 的为 0。直觉:|τ_k,i| 大 = 该参数对任务 k 高置信/经历陡梯度(高曲率),给更大权重。【原文 §3.3 Eq.6】注:论文公式用 exp(|τ|) 未显式写温度 β,理论部分(Eq.3)才引入 β;实现里等价 β=1 的 Softmax。【推断:依据=Eq.6 vs Eq.3 形式差异】
-  4. **Final Fusion**:θ_fused = θ_pre + Σ_k W_k ⊙ τ_k(Eq.4);逐维变成 Σ_{k∈S_i} w_k,i τ_k,i,冲突任务贡献被清零 → 沿多数派方向更新、步长由最强局部响应的任务自适应决定。【原文 §3.3 Eq.4】
-  - **三条理论支撑(附录 A 完整证明)**:T1 一阶泰勒——在 linear mode connectivity basin 假设下,加权 task-vector 融合≈在代理损失 Σ w_k L_k 上走一步 GD;T2 Hoeffding——剪掉反号离群任务后,聚合方向出错概率 ≤ exp(−2|S_j|(p−0.5)²),随共识集大小指数衰减、严格优于含少数派的平均;T3 最大熵——在"匹配期望显著度+归一"约束下熵最大的权重分布就是 Boltzmann/Softmax(故 Softmax 最少偏置)。【原文 §3.2, 附录 A.1-A.3】
+  1. **各任务独立微调 → 任务向量**:对 K 个领域(如 GUI 的 AITZ/AC/GUI-Odyssey,或 tool-use 的 4 个子集)各自从同一 \(\theta_{pre}\) 出发 SFT 得 \(\theta_k\),算 \(\tau_k = \theta_k - \theta_{pre}\)。【原文 §3.1】
+  2. **Stage 1 — 几何共识过滤(逐参数二值 mask,保稳)**:对第 i 维,令符号指示 \(s_{k,i}=\mathbb{1}(\tau_{k,i}\geq 0)\),正票数 \(V_i=\sum_k s_{k,i}\);阈值 \(\delta=K/2\)。若 \(V_i>\delta\) → 活跃集 \(S_i=\){符号为正的任务};若 \(V_i<K-\delta\) → \(S_i=\){符号为负的任务};否则(打平)→ 全员保留。不在 \(S_i\) 的任务该维权重强制为 0(剪掉冲突)。【原文 §3.3 Eq.5】
+  3. **Stage 2 — 曲率/显著度加权(masked Softmax,保塑)**:对 \(S_i\) 内任务,\(w_{k,i} = \exp(|\tau_{k,i}|) / \sum_{j\in S_i} \exp(|\tau_{j,i}|)\);不在 \(S_i\) 的为 0。直觉:\(|\tau_{k,i}|\) 大 = 该参数对任务 k 高置信/经历陡梯度(高曲率),给更大权重。【原文 §3.3 Eq.6】注:论文公式用 \(\exp(|\tau|)\) 未显式写温度 β,理论部分(Eq.3)才引入 β;实现里等价 \(\beta=1\) 的 Softmax。【推断:依据=Eq.6 vs Eq.3 形式差异】
+  4. **Final Fusion**:\(\theta_{fused} = \theta_{pre} + \sum_k W_k \odot \tau_k\)(Eq.4);逐维变成 \(\sum_{k\in S_i} w_{k,i} \tau_{k,i}\),冲突任务贡献被清零 → 沿多数派方向更新、步长由最强局部响应的任务自适应决定。【原文 §3.3 Eq.4】
+  - **三条理论支撑(附录 A 完整证明)**:T1 一阶泰勒——在 linear mode connectivity basin 假设下,加权 task-vector 融合≈在代理损失 \(\sum_k w_k L_k\) 上走一步 GD;T2 Hoeffding——剪掉反号离群任务后,聚合方向出错概率 \(\leq \exp(-2|S_j|(p-0.5)^2)\),随共识集大小指数衰减、严格优于含少数派的平均;T3 最大熵——在"匹配期望显著度+归一"约束下熵最大的权重分布就是 Boltzmann/Softmax(故 Softmax 最少偏置)。【原文 §3.2, 附录 A.1-A.3】
 
 - **逐组件必要性(消融 Fig 3/4,Stage1/Stage2 分别去掉)**:
   - **w/o Stage 1**(去符号投票、改均匀权重):GUI 上仍有正增益但明显低于全 Agent-Dice(如 AITZ 全法 15.05 vs 7.94;tool-use 各子集亦降)→ 证明**共识过滤是学到精确公共知识的关键**。
@@ -46,7 +46,7 @@
 
 - **实验与证据**:
   - 数据集 & 设置:**GUI agent**——AITZ、AndroidControl、GUI-Odyssey;骨干 **OS-Atlas-Pro-7B**(GUI 专用)与 **Qwen3-VL-8B**(通用)。**tool-use agent**——**ToolACE** 按"最小工具重叠"贪心切 4 子集(附录 C/Algorithm 1,对角内重叠 25.8~31.8%、跨子集泄漏<3.2%);骨干 **Qwen3-8B**(原生会调工具)与 **Llama-3.1-8B**(零样本不会调工具)。训练用 **LLaMA-Factory**,lr=1e-5,3 epoch(Qwen3-VL-8B 为 2),共 1200 GPU·小时(80GB)。【原文 §4.1, 附录 B/C】
-  - 指标:核心 **AvgZ**(各任务 Z-score 均值,Z=(M_i−μ_i)/σ_i,μ/σ 来自 baseline 模型)；GUI 另报 Type(动作类型准)/SR(步级成功)/TSR(轨迹成功,每步都对才算 1);tool-use 报 Func(函数名对)/Full(函数名+参数都对)。
+  - 指标:核心 **AvgZ**(各任务 Z-score 均值,\(Z=(M_i-\mu_i)/\sigma_i\),\(\mu/\sigma\) 来自 baseline 模型)；GUI 另报 Type(动作类型准)/SR(步级成功)/TSR(轨迹成功,每步都对才算 1);tool-use 报 Func(函数名对)/Full(函数名+参数都对)。
   - **关键发现①(主表 Table 1-4)**:四组实验 Agent-Dice **AvgZ 全部第一**——GUI/OS-Atlas:0.73(优于 "CL from all three" 0.14、各单任务);GUI/Qwen3-VL:0.29;tool-use/Qwen3-8B:0.79;tool-use/Llama-3.1:0.51。且 zero-shot 的 AvgZ 普遍为负(训练确实有用)、"learn from all" 常非次优(顺序学新会伤旧)。
   - **关键发现②(merging 对比 Table 6,GUI)**:Agent-Dice(AITZ 57.10/AC 51.42/Odyssey 72.28)≥ Model Soups(54.10/45.65/68.40)、Adapter-Soups(57.67/50.48/70.94)、AdapterFusion(55.05/51.36/71.01)→ 在多数列领先(AITZ 列 Adapter-Soups 57.67 略高于它 57.10,**非全胜**)。
   - **关键发现③(开销 Table 5)**:GPU 仅 61.84~88.52s、CPU≤~1050s,相对几十小时训练可忽略 → "轻量"主张成立。
@@ -56,8 +56,8 @@
 
 - **假设与失效边界**:
   - 【原文·Limitations】评估只覆盖"有限的代表性 agent 场景"(GUI + tool-use 两域),泛化性待更多域验证(作者自陈这是实证范围局限、非方法设计局限)。
-  - 【推断·关键】**强依赖 linear mode connectivity 假设**(各任务微调落在同一线性连通 basin,τ 可线性叠加)——若 K 个任务从同一 θ_pre 出发但学到的解不在同一 basin(差异极大/学习率大/训练步多),一阶泰勒近似失效、merging 会崩。依据=§3.2 Theorem 1 前提。
-  - 【推断】**所有任务必须共享同一 θ_pre 且同架构**才能算 task-vector 并逐维对齐——异构骨干/不同初始化不适用。依据=§3.1 τ_k=θ_k−θ_pre 定义。
+  - 【推断·关键】**强依赖 linear mode connectivity 假设**(各任务微调落在同一线性连通 basin,τ 可线性叠加)——若 K 个任务从同一 \(\theta_{pre}\) 出发但学到的解不在同一 basin(差异极大/学习率大/训练步多),一阶泰勒近似失效、merging 会崩。依据=§3.2 Theorem 1 前提。
+  - 【推断】**所有任务必须共享同一 \(\theta_{pre}\) 且同架构**才能算 task-vector 并逐维对齐——异构骨干/不同初始化不适用。依据=§3.1 \(\tau_k=\theta_k-\theta_{pre}\) 定义。
   - 【推断】Hoeffding 界假设各任务符号 i.i.d. 且 p>0.5(多数派即真方向);若某维"少数派才对"(真公共方向是少数任务的方向),符号投票会**剪掉正确更新**。依据=§3.2 Definition/Theorem 2 的 p>0.5 假设。
   - 【推断】是**离线 batch 融合**(拿到全部 K 个任务模型后一次算),**非在线持续到来**;真正流式 CL(任务一个个来、来时不知未来任务)下需重新设计(每来一个就重融?未讨论)。依据=§4.1 评估协议是"先各自训好再融"。
 
@@ -72,7 +72,7 @@
 
 | 学什么信号 | 改什么 | 何时改 | 免梯度? | 记忆-技能生命周期 | 防遗忘机制 |
 |---|---|---|---|---|---|
-| **无新训练信号**——直接用各任务**已微调好的参数差(task vector τ_k=θ_k−θ_pre)**做几何统计(符号投票 + 幅度);信号来源="各任务 SFT 留下的参数位移本身" | **backbone 参数 θ(全参数,逐维 element-wise)**——通过加权 task-vector 求和重写权重;**不改 prompt/记忆/logits、不加模块** | **离线批量**(拿到全部 K 个任务模型后**一次性后处理融合**,约 1 分钟 GPU);**非在线 per-step/per-episode** | **是(融合阶段完全免梯度)**——只做符号投票 + masked Softmax + Hadamard 加权和,无反向传播;各任务先各自 SFT(那步有梯度,但融合本身零梯度) | 无外部记忆/技能库概念;"知识"以 task vector 形式存在 → 融合时按维筛选(留共识/剪冲突)→ 写回 θ_fused;无检索/无遗忘淘汰/无跨 agent 共享 | **merging + 符号共识(本调研"几何共识巩固"的范式样本)**:① **几何共识过滤**(逐维符号多数票,剪反号冲突梯度 → 防破坏性干扰=防遗忘核心);② **曲率/显著度加权**(限制更新幅度防过大不稳)。**无 KL 投影 / 无回放 / 无参数隔离**,纯参数空间几何筛选 |
+| **无新训练信号**——直接用各任务**已微调好的参数差(task vector \(\tau_k=\theta_k-\theta_{pre}\))**做几何统计(符号投票 + 幅度);信号来源="各任务 SFT 留下的参数位移本身" | **backbone 参数 θ(全参数,逐维 element-wise)**——通过加权 task-vector 求和重写权重;**不改 prompt/记忆/logits、不加模块** | **离线批量**(拿到全部 K 个任务模型后**一次性后处理融合**,约 1 分钟 GPU);**非在线 per-step/per-episode** | **是(融合阶段完全免梯度)**——只做符号投票 + masked Softmax + Hadamard 加权和,无反向传播;各任务先各自 SFT(那步有梯度,但融合本身零梯度) | 无外部记忆/技能库概念;"知识"以 task vector 形式存在 → 融合时按维筛选(留共识/剪冲突)→ 写回 \(\theta_{fused}\);无检索/无遗忘淘汰/无跨 agent 共享 | **merging + 符号共识(本调研"几何共识巩固"的范式样本)**:① **几何共识过滤**(逐维符号多数票,剪反号冲突梯度 → 防破坏性干扰=防遗忘核心);② **曲率/显著度加权**(限制更新幅度防过大不稳)。**无 KL 投影 / 无回放 / 无参数隔离**,纯参数空间几何筛选 |
 
 - ⑦ **开源代码 + 框架/harness**:**已开源** https://github.com/Wuzheng02/Agent-Dice(摘要+§1 明确给出链接)〔本次未 `git ls-remote`/clone 核验仓库真实可达性与文件,**完整度待核**〕。训练框架:**LLaMA-Factory**(各任务 SFT,lr=1e-5)。**融合本身为自研轻量后处理脚本**(符号投票+masked Softmax+Hadamard 加权),**不使用 veRL/TRL/OpenRLHF 等 RLHF 框架**(本方法无 RL)。【原文 摘要, §4.1】
 
@@ -80,7 +80,7 @@
 
 - 🎯 **对"探索-巩固"idea 对标**:**强可借组件 + 部分支撑;是本调研"几何共识巩固"路线的代表样本**。
   - *可借组件 1(高价值,直接对标项目种子思想)*:**几何共识过滤 = "逐维符号投票剪冲突梯度"**——与项目 reusable_techniques 的"forward-hard/backward-soft 解耦"在动机上同源(都要"让更新有界、保住已学结构、剔除有害方向")。**可迁移到 TSRD 巩固阶段**:把"多条 recovery/path-selection 经验"当 task vector,用符号共识只巩固"多数轨迹一致认可的方向",剪掉单条轨迹特有的噪声方向 → 一种**免梯度的 OPD 巩固后处理**。
-  - *可借组件 2*:**曲率/显著度幅度加权(masked Softmax over |τ|)**——给"更新幅度大=高置信/高曲率"的维度更大权重,可借鉴到"按 MTP foresight 置信度/熵给不同 token 位置或不同技能不同巩固强度"。
+  - *可借组件 2*:**曲率/显著度幅度加权(masked Softmax over \(|\tau|\))**——给"更新幅度大=高置信/高曲率"的维度更大权重,可借鉴到"按 MTP foresight 置信度/熵给不同 token 位置或不同技能不同巩固强度"。
   - *支撑面*:它**正面佐证"区分公共知识 vs 冲突知识"是缓解灾难性遗忘的有效抓手**,且**用参数空间几何(符号一致性)就能近似实现这一区分**——这对"探索-巩固"中"巩固阶段如何不破坏已学能力"是直接证据(merging 路线可行、便宜、有理论)。
   - *竞品/区别*:它是**纯参数 merging、离线一次性**,**不碰 on-policy 蒸馏、不做 MTP foresight、无在线持续**——与 mtp_opd"在线 OPD + MTP 前瞻探针"主线**正交**:Agent-Dice 解决"多个已训好模型怎么合",不解决"如何在线生成/选择探索轨迹并蒸馏进参数"。可作为 TSRD 的"巩固后处理插件",但替代不了核心的在线探索-蒸馏环。
   - *缺口*:符号投票假设"多数派=正确方向",对"罕见但关键的 recovery 路径"(少数派才对)会误剪——这正是 TSRD 关心的"path-recovery 单点接管"场景,需警惕几何共识把稀有但关键的恢复方向当噪声剪掉。【推断:依据=Theorem 2 的 p>0.5 假设 + 项目 survey-grpo-step 笔记的 sparse_critical 关切】
@@ -92,7 +92,7 @@
 - 🖼 **关键图 top-2**:
 
   ![图2-Agent-Dice 参数融合流水线](../figures/agent_dice_fig2.png)
-  这是**原文 Figure 2**(方法主图):从左到右展示 Task Vectors Computation(各 Agent θ_k − θ_pre 得 τ_k)→ **Stage 1 Geometric Consensus Filtering**(对每维做 Majority Vote 定共识方向、剪掉反号的 ✗ 项)→ **Stage 2 Curvature-based Importance Weighting**(对留下的同号项过 SoftMax 按 |τ| 加权)→ Final Fusion(Σ W_k⊙τ_k 加回 θ_pre 得 θ_fused)。选它因为一图说清"任务向量→符号过滤→幅度加权→融合"全链路,是理解整个方法的钥匙。
+  这是**原文 Figure 2**(方法主图):从左到右展示 Task Vectors Computation(各 Agent \(\theta_k - \theta_{pre}\) 得 \(\tau_k\))→ **Stage 1 Geometric Consensus Filtering**(对每维做 Majority Vote 定共识方向、剪掉反号的 ✗ 项)→ **Stage 2 Curvature-based Importance Weighting**(对留下的同号项过 SoftMax 按 \(|\tau|\) 加权)→ Final Fusion(\(\sum_k W_k\odot\tau_k\) 加回 \(\theta_{pre}\) 得 \(\theta_{fused}\))。选它因为一图说清"任务向量→符号过滤→幅度加权→融合"全链路,是理解整个方法的钥匙。
 
   ![图-消融(Fig3/4)+模型相似度(Fig5/6)+merge 对比(Table6)](../figures/agent_dice_fig5.png)
   这是**原文第 9 页**(核心证据集中页):左上 **Figure 3**(GUI 消融)与右上 **Figure 4**(tool-use 消融)——w/o Stage 2 出现大幅负增益(GUI −5.80%、tool-use −17~−18%)证明曲率加权不可或缺、w/o Stage 1 明显掉点证明符号共识关键;下半 **Figure 5/6** 模型相似度热图显示 Agent-Dice 与骨干的 L2 距离只比单任务训练略大(远小于 CL from all);**Table 6** 直接对比 Model Soups/Adapter-Soups/AdapterFusion,Agent-Dice 多数列领先。选它因为这一页同时支撑"两阶段都必要""最小参数偏移""优于现有 merging"三个核心主张,是全文最密集的定量依据。

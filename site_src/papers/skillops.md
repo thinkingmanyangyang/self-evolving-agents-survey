@@ -15,10 +15,10 @@
 
 ══ 第三层:怎么做 + 靠不靠谱 ══
 - **方法流水线**(两条交替循环,见 Fig 1;§2-3):
-  1. **Skill Contract (P,O,A,V,F)**:每技能 = 前置 P / 可执行操作 O / 产物 A(带类型)/ 校验器 V / 已知失败模式 F。V=∅ 即"validation gap"。
-  2. **HSEG(分层技能生态图)**:库 L=(S,R),四类有向边——dep(si 产物满足 sj 部分前置,A_si⊆P_sj)、comp(si 输出类型兼容 sj 输入)、red(两技能接口等价=冗余)、alt(同目标不同实现)。
-  3. **Task-Time Loop**(Alg 1):① Skill Matching——r=λ·BM25+(1−λ)·语义,且只留前置被当前状态满足的技能;② Dependency Stitching——只沿 **dep∩comp** 双边拼出计划 π*(单依赖不够,产物类型还要匹配下游输入);③ Validator/Adapter Insertion——非终结技能 V=∅ 则标不可验证并插校验器节点;有 dep 无 comp 则插 adapter 节点(且 adapter 输出类型须满足下游前置);④ Local Repair——执行中技能失败则换 alt 邻居或带错误 trace 重调 repair;不可恢复则记入库时诊断 buffer。
-  4. **Library-Time Loop**(Alg 2):**五维健康诊断**——Utility(近期被成功使用比例)、Redundancy(最大 red 簇归一大小)、Compatibility(关联 dep 边中也是 comp 边的比例)、Failure-Risk(经验失败率)、Validation-Gap(1[V=∅]);整体健康 H(L) 均匀加权。**CGPD(ContractGraph-Propagated Diagnosis)**:沿 dep 边传播风险 R^(t+1)(s)=(1−α)R_loc(s)+α·max_{parents}R^(t),由 Banach 不动点定理收敛——让结构健全但继承上游高风险的技能也能被预防性插校验器。再施动作 merge/repair/retire/add_validator/add_adapter(+ task-time 的 instantiate 绑参)。
+  1. **Skill Contract (P,O,A,V,F)**:每技能 = 前置 P / 可执行操作 O / 产物 A(带类型)/ 校验器 V / 已知失败模式 F。\(V=\emptyset\) 即"validation gap"。
+  2. **HSEG(分层技能生态图)**:库 \(L=(S,R)\),四类有向边——dep(si 产物满足 sj 部分前置,\(A_{si}\subseteq P_{sj}\))、comp(si 输出类型兼容 sj 输入)、red(两技能接口等价=冗余)、alt(同目标不同实现)。
+  3. **Task-Time Loop**(Alg 1):① Skill Matching——\(r=\lambda\cdot BM25+(1-\lambda)\cdot\) 语义,且只留前置被当前状态满足的技能;② Dependency Stitching——只沿 **dep∩comp** 双边拼出计划 \(\pi^*\)(单依赖不够,产物类型还要匹配下游输入);③ Validator/Adapter Insertion——非终结技能 \(V=\emptyset\) 则标不可验证并插校验器节点;有 dep 无 comp 则插 adapter 节点(且 adapter 输出类型须满足下游前置);④ Local Repair——执行中技能失败则换 alt 邻居或带错误 trace 重调 repair;不可恢复则记入库时诊断 buffer。
+  4. **Library-Time Loop**(Alg 2):**五维健康诊断**——Utility(近期被成功使用比例)、Redundancy(最大 red 簇归一大小)、Compatibility(关联 dep 边中也是 comp 边的比例)、Failure-Risk(经验失败率)、Validation-Gap(\(1[V=\emptyset]\));整体健康 \(H(L)\) 均匀加权。**CGPD(ContractGraph-Propagated Diagnosis)**:沿 dep 边传播风险 \(\displaystyle R^{(t+1)}(s)=(1-\alpha)R_{loc}(s)+\alpha\cdot\max_{parents}R^{(t)}\),由 Banach 不动点定理收敛——让结构健全但继承上游高风险的技能也能被预防性插校验器。再施动作 merge/repair/retire/add_validator/add_adapter(+ task-time 的 instantiate 绑参)。
   5. **Plug-in 接口**:f: L↦L′ 是纯库变换,不碰下游检索/规划/执行逻辑;BM25/dense/hybrid/LLM planner/图 planner/self-repair agent 都可把原始库换成维护后库直接用。
 - **逐组件必要性**(H3 消融 Table 5,200/1000 skill 两尺度):
   · **Task-Time Loop**:去掉 79.5→**15.7**(最致命,证明匹配+类型拼接+校验/adapter 插入+本地修复是可执行规划核心)。
@@ -37,7 +37,7 @@
   |---|---|
   | 学什么信号 | **可观测执行信号(经验,非 LLM 反思)**:utility 日志、body-hash 碰撞、缺校验器、失败日志、类型不匹配 → 五维健康分【原文 §1/§3.2】 |
   | 改什么 | **技能库本身**(技能契约的合并/修复/淘汰/插校验器/插 adapter + 图结构);**不改模型、不改下游 agent 代码、不改 prompt 模板** |
-  | 何时改 | **离线/库时批量**:Task-Time Loop 每任务规划+本地修复(per-episode),Library-Time Loop 在执行后据 trace 批量维护(触发条件 ΔH<Θ_maint)【原文 Alg1/Alg2】 |
+  | 何时改 | **离线/库时批量**:Task-Time Loop 每任务规划+本地修复(per-episode),Library-Time Loop 在执行后据 trace 批量维护(触发条件 \(\Delta H<\Theta_{maint}\))【原文 Alg1/Alg2】 |
   | 免梯度? | **是**(完全规则驱动,库时几乎零 LLM 调用;无任何模型训练/梯度) |
   | 记忆-技能生命周期 | 写入(从执行日志挖契约)→ 检索(BM25+语义+前置过滤)→ 组合(dep∩comp 拼接+插 adapter/validator)→ 诊断(五维健康+CGPD 风险传播)→ **淘汰/遗忘(retire 低 utility、merge 冗余、repair 高风险)**→ 共享(plug-in 给任意下游) |
   | 防遗忘机制 | **治理/隔离类**:retire+merge+repair 主动剪债防"脏池膨胀";校验器/adapter 隔离接口错误;无 KL/几何共识/参数 merging(非参数,无灾难性遗忘问题)【推断:属"主动库治理"型防退化】 |

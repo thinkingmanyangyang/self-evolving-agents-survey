@@ -32,7 +32,7 @@
 - **方法流水线**(§3,Fig.2):
   1. **两个存储分离**(关键设计):**memory bank**(trace-specific,每条轨迹一份,每条 trace 重置)存具体记忆;**skill bank**(跨 trace 共享)存可复用记忆技能。把"轨迹专属记忆"和"可复用的记忆管理知识"解耦。
   2. **Span-level 处理**:把一条交互轨迹(如长对话)按 token 数切成**定长连续 span**(默认 512),顺序处理——不再 per-turn。
-  3. **controller(技能选择策略)**:对每个 span,编码 span + 检索到的记忆(固定 embedding e(·)=Qwen3-Embedding-0.6B,逐元素平均),与每个技能的"描述向量"拼接后过共享打分器 f_θscore,得分布 p_θ(i|h_t)(Eq.1–2);**Gumbel-Top-K** 无放回选有序 K 个技能(Eq.3 给联合 log-prob,供策略梯度)。**兼容可变规模技能库**——打分器对"状态-技能对"并行打分,不绑死固定动作头维度(技能库增删都行)。
+  3. **controller(技能选择策略)**:对每个 span,编码 span + 检索到的记忆(固定 embedding \(e(\cdot)\)=Qwen3-Embedding-0.6B,逐元素平均),与每个技能的"描述向量"拼接后过共享打分器 \(f_\theta^{score}\),得分布 \(p_\theta(i|h_t)\)(Eq.1–2);**Gumbel-Top-K** 无放回选有序 K 个技能(Eq.3 给联合 log-prob,供策略梯度)。**兼容可变规模技能库**——打分器对"状态-技能对"并行打分,不绑死固定动作头维度(技能库增删都行)。
   4. **executor(技能条件化抽取)**:冻结 LLM 以 (span + 检索记忆 + 选中 K 技能) 为条件,**一次 LLM call** 产出结构化记忆更新,解析后写回 memory bank。组合多技能 + 单次调用 → 省掉重复 per-turn 处理,长历史更省。
   5. **controller 优化**:用记忆去答 trace 的 memory-dependent 训练 query,task reward(F1 / 成功率)作信号,**PPO**(重要性加权 + clipping)训 controller。
   6. **designer(技能演进)**:① **难例缓冲区**(滑窗,query-centric,记 query+GT+检索记忆+预测+失败次数;按"太旧/超容量"两条过期规则);② **选代表难例**——KMeans 聚类按 query/error 类型分组,组内按难度分(性能低 + 反复失败 → 难度高)挑;③ **两阶段演进**——LLM 先分析"缺/错配了哪些记忆行为",再据此**改写旧技能 + 新增技能**;④ **快照回滚**——存最佳技能库快照,更新若掉点则回滚,反复无改善则早停;⑤ 演进后**临时增大探索**(偏向选新技能),帮 controller 学新技能效用。

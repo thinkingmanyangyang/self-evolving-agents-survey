@@ -7,7 +7,7 @@
 ## ══ 第一层：一眼看懂 ══
 
 - 🟦 **TL;DR**：【原文】LLM 解码常年用**固定**采样超参（temperature/top-p/top-k），但不同 prompt、甚至同一推理链里不同 token 的难度/不确定性差很大。本文学一个**轻量"解码适配器(DA)"在推理时动态选采样策略**、LLM 权重全程冻结，且**显式以"计算预算"为条件**训练。两个层级:① **序列级=上下文 bandit**:每个 prompt 选一个解码配置(greedy/top-k/top-p/min-p),输入=prompt embedding + 并行采样预算 B;动作集用**数据驱动的子模贪心**从大候选池选出小而互补的策略集(借鉴 AuPair);② **token 级=POMDP**:每步看内部隐状态 + 剩余 token 预算 b_t 选(主要是 temperature)动作,用 **REINFORCE**+可验证终端奖励训练。在 MATH / CodeContests(Qwen3-4B)上,token 级在固定 token 预算下 Pass@1 最高 **+10.2%**,序列级在固定并行采样下 +2–3%。
-- **最巧的一步**：【原文+推断】**把"计算预算"塞进策略输入并跨预算训练**(x=[e;B] 或 x_t=[e_t;b_t]),且**只用任务正确性奖励、不用 reward model/偏好**。【推断】抽掉"预算条件化",就退化成又一个自适应采样头——论文核心反复强调:budget-conditioning 即使在固定预算下评测也一致更好(§3.2),因为它把"train-test 推理约束不匹配"显式建进训练;另一关键消融"**entropy-only**"(只给 token 熵当输入)只到 72% 验证奖励、远低于完整 token 适配器的 >80% Pass@1——说明增益**不是简单的熵阈值启发式**能复现的,必须学。【推断依据:§4"Is entropy alone sufficient?"消融 + §3.2 budget 消融】。
+- **最巧的一步**：【原文+推断】**把"计算预算"塞进策略输入并跨预算训练**(\(x=[e;B]\) 或 \(x_t=[e_t;b_t]\)),且**只用任务正确性奖励、不用 reward model/偏好**。【推断】抽掉"预算条件化",就退化成又一个自适应采样头——论文核心反复强调:budget-conditioning 即使在固定预算下评测也一致更好(§3.2),因为它把"train-test 推理约束不匹配"显式建进训练;另一关键消融"**entropy-only**"(只给 token 熵当输入)只到 72% 验证奖励、远低于完整 token 适配器的 >80% Pass@1——说明增益**不是简单的熵阈值启发式**能复现的,必须学。【推断依据:§4"Is entropy alone sufficient?"消融 + §3.2 budget 消融】。
 
 ---
 
@@ -23,10 +23,10 @@
 
 ## ══ 第三层：怎么做 + 靠不靠谱 ══
 
-- **方法流水线(两种粒度)**：【原文,Fig.1】把 frozen LLM f 当环境,学轻量解码适配器(DA)调采样,LLM 参数全冻。每个动作 a∈S 对应一个解码配置(temp/top-k/top-p/min-p),视作对 base 分布的变换 T_a:p_{f,a}=T_a(p_f)。
-  1. **序列级(contextual bandit)**:每 prompt 选**一个**解码配置,policy 输入 x=[e; B]\(e=prompt embedding,B=并行采样预算),动作对整段生成固定;终端奖励 r=该预算下的 Pass@k/best-of-B;目标 J_seq=E[r]+β·H(π)(熵正则)(§2.2)。
-  2. **动作集构造(数据驱动子模贪心)**:借鉴 **AuPair**——从大候选池(temp/top-k/top-p/min-p 组合)在 held-out 上用**子模最大化贪心**选小而互补的策略集 S(max F(S)=Σ_x max_{s∈S} R(x,s)),保证"best-of-S"覆盖高性能行为(§2.4)。
-  3. **token 级(POMDP)**:每步 policy 观察 x_t=[e_t; b_t]\(e_t=该步隐状态嵌入,b_t=b−t 剩余 token 预算)、选动作(主要是 **temperature**);目标 J_tok=E[r],REINFORCE 优化(§2.3)。
+- **方法流水线(两种粒度)**：【原文,Fig.1】把 frozen LLM f 当环境,学轻量解码适配器(DA)调采样,LLM 参数全冻。每个动作 \(a∈S\) 对应一个解码配置(temp/top-k/top-p/min-p),视作对 base 分布的变换 \(T_a:p_{f,a}=T_a(p_f)\)。
+  1. **序列级(contextual bandit)**:每 prompt 选**一个**解码配置,policy 输入 \(x=[e; B]\)(\(e\)=prompt embedding,\(B\)=并行采样预算),动作对整段生成固定;终端奖励 \(r\)=该预算下的 Pass@k/best-of-B;目标 \(J_{seq}=E[r]+β·H(π)\)(熵正则)(§2.2)。
+  2. **动作集构造(数据驱动子模贪心)**:借鉴 **AuPair**——从大候选池(temp/top-k/top-p/min-p 组合)在 held-out 上用**子模最大化贪心**选小而互补的策略集 \(S\)(\(\max F(S)=Σ_x \max_{s∈S} R(x,s)\)),保证"best-of-S"覆盖高性能行为(§2.4)。
+  3. **token 级(POMDP)**:每步 policy 观察 \(x_t=[e_t; b_t]\)(\(e_t\)=该步隐状态嵌入,\(b_t=b−t\) 剩余 token 预算)、选动作(主要是 **temperature**);目标 \(J_{tok}=E[r]\),REINFORCE 优化(§2.3)。
   4. **训练稳定化(关键)**:naive token 级 REINFORCE 高方差不收敛,需两招——① 过滤产生稀疏/噪声奖励的 prompt;② **mask 掉 max-prob>0.95 的近确定 token**(它们贡献少学习信号却显著加方差)。【原文】"Without these adjustments, we were unable to obtain stable training"。
 - **逐组件必要性(及消融)**：【原文】
   - **预算条件化**:必要——§3.2 + Table 5:token 级 w/ budget 比 w/o budget 再涨(MATH w/o CoT +6.68→+9.49pp、mix CoT +5.85→+10.23pp),且固定预算评测也更好。
@@ -34,7 +34,7 @@
   - **子模贪心选动作集**:【推断】必要性较弱、未单独消融——它保证动作集"小而互补",但论文未做"随机选动作集 vs 子模选"的对比。
   - **熵正则**:防策略塌成单一动作——§3.4 Fig.2:学到的策略**不塌**,把概率质量集中到少数高效策略、同时对替代项保留非零概率(exploitation 与 robustness 权衡)。
 - **关键机制/公式直觉**：
-  - **x_t=[e_t; b_t] 把"剩余预算"塞进 token 级策略输入**:【原文+推断】直觉=预算多→该探索性采样(放开 temperature)、临近结尾→趋确定(降方差稳定 completion)。这把"何时该探索/该确定"做成**可学的、随轨迹位置变化的** stochasticity 分配,而非全局固定温度。
+  - **\(x_t=[e_t; b_t]\) 把"剩余预算"塞进 token 级策略输入**:【原文+推断】直觉=预算多→该探索性采样(放开 temperature)、临近结尾→趋确定(降方差稳定 completion)。这把"何时该探索/该确定"做成**可学的、随轨迹位置变化的** stochasticity 分配,而非全局固定温度。
   - **把 LLM 当 stochastic transition kernel、DA 选 transition dynamics**:【原文】§2.1——adapter 通过选解码动作,在 frozen LLM 诱导的 token+hidden 转移核里选一条;这是"tabula rasa RL on frozen model"的形式化,区别于把 LLM 当 policy 的 GRPO/PPO。
 - **实验与证据(关键实验+具体数字)**：【原文】base=**Qwen3-4B**(主),Qwen3-8B/Qwen2.5-Math-1.5B(附录);数据=**MATH**+**CodeContests**(+AIME'25 泛化)。**最关键结果**=Table 5(token 级,MATH,固定 token 预算):budget 变体 Pass@1 **80.82%(+9.49)/ 82.33%(+10.23)** vs 最佳静态;序列级(Table 1-2,固定并行采样)+2–3%(MATH)、CodeContests 因基数低相对增益大(Pass@1 11.43→14.50,+27%)。**支撑核心主张的关键实验**=§4 的 entropy-only 消融 + §3.2 的 budget 消融——前者证"非启发式可复现"、后者证"预算条件化是增益主驱动",共同回答"这是真学到了 vs 只是重参数化静态启发式"。**baseline 是否公平**:【推断】比了 BEST(最佳单一静态策略)和 MIXED(同动作集均匀混合、无学习)两个强静态基线、用同动作空间,较公平;泛化性测了 AIME'25(MATH 训→无调,thinking 65.6→71.1)和 OOD(MATH 训→CodeContests)。**看着强但没回答核心问题**:【推断】**混合域训练(math+code)增益变小**(Table 4,§3.3),说明跨域 compromise 解会稀释收益;且 token 级增益虽大但**REINFORCE 天然高方差、需两招稳定才收敛**(鲁棒性存疑)。
 - **假设与失效边界**：【原文+推断】① 假设**有可验证终端奖励**(math/code 正确性)且 **base LLM 足够强**;② 失效:token 级 REINFORCE **高方差**(需过滤+mask 才稳)、**混合域训练增益变小**(§3.3)、动作空间被限在小离散集(§6 自陈"连续/更丰富解码变换会根本改变学习问题、引入新优化/样本效率挑战");③ 【推断】**完全无经验积累/记忆/防遗忘**——纯解码控制,reward 难定义的任务(对话/开放推理)未测。
@@ -48,7 +48,7 @@
 | 维度 | 内容 |
 |---|---|
 | **学什么信号** | **可验证终端奖励**(math/code 正确性,RLVR 式)；**无 reward model、无偏好标注、无人工启发式**;序列级奖励=该预算下的 Pass@k/best-of-B |
-| **改什么** | **解码策略/采样超参(temperature/top-p/top-k/min-p)** via 轻量适配器(序列级 MLP / token 级策略)→ 等价于对 base 分布施加变换 T_a;**LLM 权重冻结**(把 LLM 当"环境/stochastic transition kernel") |
+| **改什么** | **解码策略/采样超参(temperature/top-p/top-k/min-p)** via 轻量适配器(序列级 MLP / token 级策略)→ 等价于对 base 分布施加变换 \(T_a\);**LLM 权重冻结**(把 LLM 当"环境/stochastic transition kernel") |
 | **何时改** | **test-time·两种粒度**:序列级=每 prompt 一次(per-episode);token 级=**每步**(in-episode per-step);均显式条件化于"剩余预算" |
 | **免梯度?** | **混合**:对 base LLM 是**免梯度**(冻结);但**适配器本身用 REINFORCE 梯度训练**(不是 training-free,是"在冻结模型外训一个小策略") |
 | **记忆-技能生命周期** | **不适用/极弱**:无外部记忆、无技能库、无经验积累;学到的是一个**参数化解码策略**(reusable across prompts),无"写入→检索→淘汰"生命周期 |

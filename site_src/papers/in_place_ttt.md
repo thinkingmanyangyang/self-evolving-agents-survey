@@ -56,7 +56,7 @@
 
 - **假设与失效边界**:
   - 【原文】Theorem 1 建立在 induction-head 设定 + 两条温和假设(embedding 近正交且有非平凡模长;query 与对应 key 的中间激活对齐、与无关位置内积为 0)——脱离这些(如表征高度纠缠、检索不准)定理不保证。
-  - 【原文】推理时需对 fast-weight 更新 delta 做 **Frobenius norm 裁剪**(阈值 τ=1e-5)防长序列下更新无界增长——说明**朴素累积有数值不稳定风险**,靠裁剪兜底。
+  - 【原文】推理时需对 fast-weight 更新 delta 做 **Frobenius norm 裁剪**(阈值 \(\tau=10^{-5}\))防长序列下更新无界增长——说明**朴素累积有数值不稳定风险**,靠裁剪兜底。
   - 【原文】文档边界须重置 fast weights 防跨序列泄漏;loss/优化器只用了最简内积,更复杂选择未探。
   - 【推断】**适配只发生在 \(W_{down}\) 这一撮 fast weights、且训练后 Conv/Proj 固定**——它学的是"如何把上下文压成 NTP-useful 的 KV 记忆",**不是真正持久地改预训练知识**;文档边界一重置,跨 document 的"经验"就没了。所以它更像"超长有效上下文 / 在线工作记忆",而非跨任务的终身学习。依据=边界重置机制 + fast weights 范围。
   - 【推断】每六层才插一个 TTT 模块(附录C.3),是性能/开销折中;插得太密的稳定性/收益未充分给出。依据=附录"applied to every sixth layer"。
@@ -72,7 +72,7 @@
 
 | 学什么信号 | 改什么 | 何时改 | 免梯度? | 记忆-技能生命周期 | 防遗忘机制 |
 |---|---|---|---|---|---|
-| **自监督 NTP-aligned 信号**(target=Conv1D(下文token embedding)·W_target,即"预测未来 token";非环境 reward/非人类) | **参数(fast weights)**——gated-MLP 的最后投影 \(W_{down}\) 就地更新;slow weights(W_up/W_gate/attention)冻结;不改 logits 头、不改 prompt/记忆库 | **在线 per-chunk / test-time**(推理时按 chunk(C=512–1024)边读边更新;严格因果) | **混合**:推理时的 fast-weight 更新是**一步内积闭式、免反传**(\(W\!+\!=\!\eta\hat V^\top Z\),等价一步 GD);但 Conv1D/\(W_{target}\) 是**离线 continual-training 用梯度学**出来的 | 写入(per-chunk 把上下文压进 \(W_{down}\))→检索(apply:\(Z_{[i]}W_{down}^\top\),即按 key 相似度取 value)→**遗忘/重置**(文档边界重置回预训练态;norm 裁剪防无界累积)→无跨 agent 共享 | **隔离/重置式**:文档边界**重置 fast weights** 防跨序列泄漏;**零初始化保证挂载时不破坏预训练知识**(slow weights 永远冻结)→预训练能力天然受保护;但"跨 document 经验"也随重置丢失(非持久) |
+| **自监督 NTP-aligned 信号**(target=Conv1D(下文token embedding)\(\cdot W_{target}\),即"预测未来 token";非环境 reward/非人类) | **参数(fast weights)**——gated-MLP 的最后投影 \(W_{down}\) 就地更新;slow weights(W_up/W_gate/attention)冻结;不改 logits 头、不改 prompt/记忆库 | **在线 per-chunk / test-time**(推理时按 chunk(C=512–1024)边读边更新;严格因果) | **混合**:推理时的 fast-weight 更新是**一步内积闭式、免反传**(\(W\!+\!=\!\eta\hat V^\top Z\),等价一步 GD);但 Conv1D/\(W_{target}\) 是**离线 continual-training 用梯度学**出来的 | 写入(per-chunk 把上下文压进 \(W_{down}\))→检索(apply:\(Z_{[i]}W_{down}^\top\),即按 key 相似度取 value)→**遗忘/重置**(文档边界重置回预训练态;norm 裁剪防无界累积)→无跨 agent 共享 | **隔离/重置式**:文档边界**重置 fast weights** 防跨序列泄漏;**零初始化保证挂载时不破坏预训练知识**(slow weights 永远冻结)→预训练能力天然受保护;但"跨 document 经验"也随重置丢失(非持久) |
 
 - ⑦ **开源代码 + 框架/harness**:**已开源** https://github.com/ByteDance-Seed/In-Place-TTT (摘要 + §1 给出)。**无 RL 训练框架**(veRL/TRL/OpenRLHF 等不涉及)——这是**预训练/continual-pretraining 工作**:训练栈基于自研大规模预训练 pipeline(H800、AdamW)+ TogetherAI 长数据集 collection 作 from-scratch baseline 对照;**评测用 lm-evaluation-harness(常识)+ OpenCompass(长上下文 RULER)**。backbone:Qwen3-4B/14B-Base、LLaMA-3.1-8B、自研 500M/1.5B/1.7B/4B。〔代码仓未 clone 核验,以正文链接 + 附录 Alg.1/超参表为准——待核仓内训练框架(Megatron/自研)细节〕【原文 摘要, §4.1, 附录C】
 

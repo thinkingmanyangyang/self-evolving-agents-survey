@@ -33,12 +33,12 @@
 ══ 第三层：怎么做 + 靠不靠谱 ══
 
 - **方法流水线**：
-  ① **Tool-Reflection-Bench 数据合成(§2.1)**：取干净正确轨迹 D⁺(系统提示/用户/assistant调用/工具返回/最终答交替) →
-     - **扰动(§2.1.1, P1-P4)**：对某步 assistant 调用 mast_2k 施加算子——P1 换序(用下一轮调用替换并强制出错)、P2 冗余(重复同工具、无关参数)、P3 缺调用(换成别的工具)、P4 参数错(随机损坏参数:缺失/类型/别名/边界);
-     - **正样本变换(§2.1.2)**：得到错误调用 m̃ast_2k + 用 LLM 模拟工具错误反馈 m̃tool_2k+1,构成负轨迹前缀 D⁻(只到错误调用+错误信号,不修);
+  ① **Tool-Reflection-Bench 数据合成(§2.1)**：取干净正确轨迹 \(D^+\)(系统提示/用户/assistant调用/工具返回/最终答交替) →
+     - **扰动(§2.1.1, P1-P4)**：对某步 assistant 调用 \(m_{ast,2k}\) 施加算子——P1 换序(用下一轮调用替换并强制出错)、P2 冗余(重复同工具、无关参数)、P3 缺调用(换成别的工具)、P4 参数错(随机损坏参数:缺失/类型/别名/边界);
+     - **正样本变换(§2.1.2)**：得到错误调用 \(\tilde{m}_{ast,2k}\) + 用 LLM 模拟工具错误反馈 \(\tilde{m}_{tool,2k+1}\),构成负轨迹前缀 \(D^-\)(只到错误调用+错误信号,不修);
      - **反思修复(§2.1.3)**：给模型 clean vs broken 的配对证据 → 模型输出 `<reflect>ref</reflect>` 诊断差异 + 修复调用 c → **人工监督 post-edit** 得 (ref*, c*),其中 **c* 直接设为 clean 轨迹的原正确调用**;保留条件:标签/JSON 良构、c* 可执行、ref* 正确引用 clean-broken 对比。
-  ② **奖励设计(§2.2)**：把 completion 拆成 (cref 反思, Ccalls 调用多重集, cfinal 最终);算三分量 sref=语义相似、scall=调用多重集严格相等(工具名+参数都一致)、sfinal=语义相似;**presence mask 归一化**(只对 ground truth 实际出现的部分归一,缺失部分不人为压分);**格式惩罚因子 F**(Pmiss 缺调用/Pextra 多调用/Pcount 数量不匹配);核心奖励 Rcore=S·F;**similarity backoff**(式25):当 Rcore<ε 时退回到 wb·Sb(整体语义相似),提供稠密塑形信号防梯度塌零。
-  ③ **RL 训练(§2.3)**：GRPO-style 目标,每实例采 4 个 completion 成组;**DAPO**:解耦 clip(εlow=0.2/εhigh=0.28,clip-higher)+ 动态采样(跳过全对/全错的零信息组,要求组内方差>τvar);**GSPO**:序列级重要性比(几何平均、长度归一,式29)+ 同粒度 clip(避免 token/序列错配)。1 epoch=1000 步,5k 样本,Swift 框架。
+  ② **奖励设计(§2.2)**：把 completion 拆成 (cref 反思, Ccalls 调用多重集, cfinal 最终);算三分量 sref=语义相似、scall=调用多重集严格相等(工具名+参数都一致)、sfinal=语义相似;**presence mask 归一化**(只对 ground truth 实际出现的部分归一,缺失部分不人为压分);**格式惩罚因子 F**(Pmiss 缺调用/Pextra 多调用/Pcount 数量不匹配);核心奖励 \(R_{core}=S·F\);**similarity backoff**(式25):当 \(R_{core}<ε\) 时退回到 \(w_b·S_b\)(整体语义相似),提供稠密塑形信号防梯度塌零。
+  ③ **RL 训练(§2.3)**：GRPO-style 目标,每实例采 4 个 completion 成组;**DAPO**:解耦 clip(\(ε_{low}=0.2\)/\(ε_{high}=0.28\),clip-higher)+ 动态采样(跳过全对/全错的零信息组,要求组内方差\(>τ_{var}\));**GSPO**:序列级重要性比(几何平均、长度归一,式29)+ 同粒度 clip(避免 token/序列错配)。1 epoch=1000 步,5k 样本,Swift 框架。
   输出:能在多轮工具调用里触发反思并修复的策略。
 
 - **逐组件必要性**(消融表3/表4)：
@@ -52,7 +52,7 @@
   - **presence mask 归一化(式14-16)**：直觉是"有的样本只要 `<call>` 没有 `<final>`,不能因为缺了某部分就人为压低分数"——只在 ground truth 实际出现的部分上归一,保证满分恒为 1,跨完整/部分监督样本一致。
   - **similarity backoff(式25)**：直觉是"训练早期模型还达不到精确匹配,硬惩罚会让奖励近 0、梯度稀疏方差大"——当核心奖励太低时退回到"整体语义相似度"给稠密塑形信号,先把模型拉到大致正确再谈精确。这是对抗工具调用稀疏奖励的关键工程。
   - **GSPO 序列级几何平均 IS(式29)**：直觉是"奖励是序列级的(整条 completion 一个分),那重要性比也该在序列级算并 clip,否则 token 级 IS 与序列级奖励错配会不稳"。
-  - **DAPO clip-higher + 动态采样**：clip-higher(εhigh>εlow)给正优势更松的上界鼓励探索;跳过全对/全错组(零信息)省算力、聚焦有学习信号的样本。
+  - **DAPO clip-higher + 动态采样**：clip-higher(\(ε_{high}>ε_{low}\))给正优势更松的上界鼓励探索;跳过全对/全错组(零信息)省算力、聚焦有学习信号的样本。
 
 - **实验与证据**：
   - **数据集/设置**：训练用自建 **Tool-Reflection-Bench**(~5k train 含完整错→反思→修 + 少量 BUTTON/XLAM 原始数据;~1k test 纯扰动失败样本)。评测 **BFCL v3**(多轮,每子集 200 对话,conversation-level pass@1)+ Tool-Reflection-Bench(Repair@n)。base 模型 LLaMA3.1-8B-Instruct-FC / Qwen2.5-7B-Instruct-FC / Qwen3-4B-Instruct。**三个随机种子平均**。temp=0.85、4 completion/组。【原文 §3.1】

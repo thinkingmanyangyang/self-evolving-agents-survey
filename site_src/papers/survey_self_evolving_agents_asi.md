@@ -6,7 +6,7 @@
 
 ══ 第一层:一眼看懂 [light] ══
 
-- 🟦 **TL;DR**:这是**第一篇专门给"自进化 Agent"做系统综述**的论文(作者自称 first systematic survey,§1)。它把"一个 LLM Agent 怎么在用完之后还能自己变强"这件事,拆成**四个正交问题**来组织整个领域:**改什么(What)、何时改(When)、怎么改(How)、在哪改(Where)**。再加一套**形式化定义**(把环境写成 POMDP、把 Agent 系统写成四元组 Π=(架构Γ, 模型ψ, 上下文C, 工具W)、把"自进化"写成一个把旧 Agent 映射到新 Agent 的变换 f(Π,τ,r)=Π′),最后配评测维度(L6)和应用域(L7)、安全与未来方向。【原文 Abstract、§1、§2、Fig.2、Fig.3】
+- 🟦 **TL;DR**:这是**第一篇专门给"自进化 Agent"做系统综述**的论文(作者自称 first systematic survey,§1)。它把"一个 LLM Agent 怎么在用完之后还能自己变强"这件事,拆成**四个正交问题**来组织整个领域:**改什么(What)、何时改(When)、怎么改(How)、在哪改(Where)**。再加一套**形式化定义**(把环境写成 POMDP、把 Agent 系统写成四元组 \(\Pi\)=(架构\(\Gamma\), 模型\(\psi\), 上下文\(C\), 工具\(W\))、把"自进化"写成一个把旧 Agent 映射到新 Agent 的变换 \(f(\Pi,\tau,r)=\Pi'\)),最后配评测维度(L6)和应用域(L7)、安全与未来方向。【原文 Abstract、§1、§2、Fig.2、Fig.3】
 - **最巧的一步(抽掉就垮)**:**"locus of autonomy"(自主性的落点)这把尺子**——作者明说:"we define self-evolution not merely by the algorithms used, but by **the locus of autonomy**"(§1)。即**不靠"用了 SFT 还是 RL"来界定自进化,而靠"是不是 Agent 自己(基于自己的轨迹/反馈)发起并持续改自己"**。抽掉这把尺子,SFT/RL/蒸馏全都能算"进化",分类法立刻退化成普通"LLM 训练方法综述",四象限失去判别力。正是这把尺子,才能把"标准蒸馏(数据生成与 Agent 交互史无关)"排除在外、把"per-task 反思改 prompt"纳入进来。
 
 ---
@@ -33,10 +33,10 @@
 ══ 第三层:怎么做 + 靠不靠谱 ══
 
 ### 形式化骨架(全综述的公理层,§2.1)——可直接复用
-- **环境 = POMDP**:E=(G,S,A,T,R,Ω,O,γ)。G 目标集(用户 query)、S 状态、**A 动作 = 文本推理 ∪ 外部知识检索 ∪ 工具调用**、T 转移、**R 反馈/奖励(scalar 或 textual,以目标 g 为条件)**、Ω/O 观测、γ 折扣。
-- **(多)Agent 系统 = Π=(Γ, {ψi}, {Ci}, {Wi})**:**Γ 架构/控制流**(节点序列,图或代码结构);每个节点 Ni 含 **ψi=底层 LLM/MLLM**、**Ci=上下文(prompt Pi + memory Mi)**、**Wi=可用工具/API 集**。节点策略 πθi(·|o),其中 **θi=(ψi, Ci)**,动作空间 = 自然语言空间 ∪ 工具空间。
+- **环境 = POMDP**:\(E=(G,S,A,T,R,\Omega,O,\gamma)\)。\(G\) 目标集(用户 query)、\(S\) 状态、**\(A\) 动作 = 文本推理 \(\cup\) 外部知识检索 \(\cup\) 工具调用**、\(T\) 转移、**\(R\) 反馈/奖励(scalar 或 textual,以目标 \(g\) 为条件)**、\(\Omega\)/\(O\) 观测、\(\gamma\) 折扣。
+- **(多)Agent 系统 = \(\Pi=(\Gamma, \{\psi_i\}, \{C_i\}, \{W_i\})\)**:**\(\Gamma\) 架构/控制流**(节点序列,图或代码结构);每个节点 \(N_i\) 含 **\(\psi_i\)=底层 LLM/MLLM**、**\(C_i\)=上下文(prompt \(P_i\) + memory \(M_i\))**、**\(W_i\)=可用工具/API 集**。节点策略 \(\pi_{\theta_i}(\cdot|o)\),其中 **\(\theta_i=(\psi_i, C_i)\)**,动作空间 = 自然语言空间 \(\cup\) 工具空间。
 - **自进化策略 = 变换 f**(全篇的"动词"):
-  \(f(Π, τ, r) = Π′ = (Γ′, {ψ′i}, {C′i}, {W′i})\) —— 给定当前系统、轨迹 τ、反馈 r,产出**新系统**。递归地 \(Π_{j+1}=f(Π_j, τ_j, r_j)\),目标是**最大化任务序列上的累计效用** max_f Σ_j U(Π_j, T_j)。**这就是 What(改 Π 的哪一项 Γ/ψ/C/W)× When(在哪个 j、test-time 内还是任务间)× How(f 怎么用 τ 和 r)的统一语言。**
+  \(f(Π, τ, r) = Π′ = (Γ′, {ψ′i}, {C′i}, {W′i})\) —— 给定当前系统、轨迹 τ、反馈 r,产出**新系统**。递归地 \(Π_{j+1}=f(Π_j, τ_j, r_j)\),目标是**最大化任务序列上的累计效用** \(\max_f \Sigma_j U(\Pi_j, T_j)\)。**这就是 What(改 \(\Pi\) 的哪一项 \(\Gamma\)/\(\psi\)/\(C\)/\(W\))× When(在哪个 j、test-time 内还是任务间)× How(f 怎么用 τ 和 r)的统一语言。**
 - **操作性定义(§2.1,判别尺,极重要)**:*"A self-evolving agent is the agent that modifies its internal parameters, contextual state, toolset, or architectural topology based on its own trajectories or feedback signals, with the explicit objective of improving future performance."* 三条**纳入准则**:
   1. **经验依赖(experience-dependent)**:更新由轨迹/自生成数据/环境反馈驱动,且**针对 Agent 自身策略短板/能力边界**(不是泛泛的数据合成);
   2. **持久且改策略(persistent, policy-changing)**:产生持久的、改变策略的效果,**而非一次性 instruction-following**;
@@ -46,7 +46,7 @@
 
 ### 四大坐标轴的 taxonomy(Fig.2 叶节点,A 栏骨架)
 - **What to Evolve(§3,改什么)= Π 的四支柱**:
-  - **Model {ψ}**:① **Policy**(改策略参数:SCA, Self-Rewarding-Self-Improving, SELF, SCoRe, PAG, TextGrad, AutoRule, SRLM)② **Lesson/经验**(SCA, AgentGen, Reflexion, AdaPlanner, SICA, Self-Refine, Learn-by-interact, RAGEN, DYSTIL)。
+  - **Model \(\{\psi\}\)**:① **Policy**(改策略参数:SCA, Self-Rewarding-Self-Improving, SELF, SCoRe, PAG, TextGrad, AutoRule, SRLM)② **Lesson/经验**(SCA, AgentGen, Reflexion, AdaPlanner, SICA, Self-Refine, Learn-by-interact, RAGEN, DYSTIL)。
   - **Context {C}**:① **Memory**(SAGE, Mem0, MemInsight, REMEMBER, ExpeL, Agent Workflow Memory, Richelieu, ICE)② **Prompt**(APE, ORPO, ProTeGi, PromptAgent, REVOLVE, PromptBreeder, DSPy, Trace, TextGrad, SPO, LLM-AutoDiff, EvoAgent)。
   - **Tools {W}**:① **Creation 创建**(Voyager, Alita, ATLASS, CREATOR, SkillWeaver, CRAFT)② **Mastery 掌握**(LearnAct, DRAFT, ToolLLM, Toolformer, Gorilla)③ **Selection 选择**(ToolGen, AgentSquare, **DGM**, COLT, TOOLRET, ToolRerank, PTR, SSO)。
   - **Architecture Γ**:① **Single-Agent**(AgentSquare, **DGM**, Gödel Agent, AlphaEvolve, TextGrad, EvoFlow, MASS)② **Multi-Agent**(AFlow, ADAS, AutoFlow, GPTSwarm, ScoreFlow, FlowReasoner, ReMA, GIGPO)。
@@ -63,7 +63,7 @@
 - **Future(§8)**:个性化 Agent、泛化、安全可控(强调自进化系统的 emergent risk + 处方式 guardrail)、多 Agent 生态。
 
 ### 逐组件必要性 & 证据(综述特性)
-- 综述**无自做实验/消融**——它的"证据"是**对 100+ 篇工作的归类覆盖度**。其说服力靠 Fig.2 叶节点的代表作填充 + Table 1 的划界。**真贡献(硬货)**:① 一套能落地的**操作性定义 + 3 准则 + passive/active**(可直接拿去判一篇论文算不算自进化);② **Π=(Γ,ψ,C,W) + f(Π,τ,r)=Π′** 的统一形式语言(把异构方法统一可比);③ **what×when×how×where 正交分解** + 横切三维。
+- 综述**无自做实验/消融**——它的"证据"是**对 100+ 篇工作的归类覆盖度**。其说服力靠 Fig.2 叶节点的代表作填充 + Table 1 的划界。**真贡献(硬货)**:① 一套能落地的**操作性定义 + 3 准则 + passive/active**(可直接拿去判一篇论文算不算自进化);② **\(\Pi=(\Gamma,\psi,C,W)\) + \(f(\Pi,\tau,r)=\Pi'\)** 的统一形式语言(把异构方法统一可比);③ **what×when×how×where 正交分解** + 横切三维。
 - **看着强但要小心的地方**:综述把 Reflexion/Self-Refine 这类**纯 in-context 反思**也归入"Model→Lesson / Reward-based→Textual",但按它自己准则(ii)"持久、改策略而非一次性 instruction-following",这类**单次任务内的反思是否真满足'持久'**是模糊的——作者用"proto-evolution"软化了,但这导致**同一篇工作在 What 和 When 里被多次引用**(如 Reflexion 出现在 Model-Lesson、When-Intra-ICL、How-Textual 三处),分类**非互斥**,使用时要注意"一篇可挂多格"。
 
 ### 假设与失效边界
@@ -79,7 +79,7 @@
   | 维度 | 综述给出的上位划分(可作其余论文的对齐刻度) |
   |---|---|
   | **学什么信号** | Reward-based 四源:Textual / Internal / External / Implicit;+ Imitation(自生成/跨Agent/混合)|
-  | **改什么** | Π 四支柱:Model ψ(参数/经验)· Context C(memory+prompt)· Tools W(创建/掌握/选择)· Architecture Γ(单/多Agent 拓扑)|
+  | **改什么** | \(\Pi\) 四支柱:Model \(\psi\)(参数/经验)· Context \(C\)(memory+prompt)· Tools \(W\)(创建/掌握/选择)· Architecture \(\Gamma\)(单/多Agent 拓扑)|
   | **何时改** | Intra-test-time(任务内在线)vs Inter-test-time(任务间);横切 Online/Offline |
   | **免梯度?** | 用 ICL(免梯度)/ SFT / RL 三分;横切 On-policy/Off-policy 区分用谁的轨迹 |
   | **记忆-技能生命周期** | Context-Memory 支:store/retrieve;Tools 支:create→master→select(=技能写入→掌握→检索/淘汰)|
@@ -94,6 +94,6 @@
   - ![图2-自进化Agent的what/when/how/where四轴taxonomy树(叶节点挂代表作)](../figures/survey_self_evolving_agents_asi_fig2.png)
     这是**原文 Figure 2**(p.4)。选它因为它是**整篇综述、也是本调研 A 栏的骨架本体**:一张树把 What(Model/Context/Tools/Architecture)、When(Intra/Inter-test-time)、How(Reward/Imitation/Population + 横切维)、Where(General/Specialized)四个轴的**每个叶节点都填上了代表方法**(DGM/SICA 在多处出现,EvoAgent 在 Prompt 支),是"把任一论文挂到地图上"的查询表。
   - ![图3-自进化Agent全维度总览(对应§3–§7的阅读流)](../figures/survey_self_evolving_agents_asi_fig3.png)
-    这是**原文 Figure 3**(p.5)。选它因为它把**抽象的 Π=(Γ,ψ,C,W) 形式化**画成了**可视回路**:Agent 的 Memory/Prompts/Model/Context 如何 store-retrieve / instruct / call-return / plan-reason,并把 When(Intra/Inter)、How(三方法族 + 横切三维)、Where(域)、Evaluation(Adaptivity/Retention/Generalization/Efficiency/Safety + Static/Short/Long-horizon 范式)一图汇齐 —— 是"形式定义→分类轴→评测"的桥梁图,补足 Fig.2 的纯树状视角。
+    这是**原文 Figure 3**(p.5)。选它因为它把**抽象的 \(\Pi=(\Gamma,\psi,C,W)\) 形式化**画成了**可视回路**:Agent 的 Memory/Prompts/Model/Context 如何 store-retrieve / instruct / call-return / plan-reason,并把 When(Intra/Inter)、How(三方法族 + 横切三维)、Where(域)、Evaluation(Adaptivity/Retention/Generalization/Efficiency/Safety + Static/Short/Long-horizon 范式)一图汇齐 —— 是"形式定义→分类轴→评测"的桥梁图,补足 Fig.2 的纯树状视角。
 
 【三标注小结】本笔记中:taxonomy 叶节点、操作性定义、3 准则、POMDP/f 公式、Table 1 七属性、§8 未来方向均为**【原文】**;"Table 1 是并集能力非交集""巩固机制留白是本调研缺口""最该补低成本巩固"为**【推断】**(已各附依据);无【待核】关键事实(全部对照 PDF 正文 p.1–9 + Fig.2/3)。

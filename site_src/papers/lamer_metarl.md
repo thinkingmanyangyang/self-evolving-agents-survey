@@ -18,24 +18,24 @@
 
 ══ 第三层:怎么做 + 靠不靠谱 ══
 - **方法流水线**(输入预训练 LLM + 任务分布 → 输出会探索-适应的策略):
-  1. **跨 episode trial**:每个 trial = N=3 个顺序生成的 episode,T=(τ⁽⁰⁾,...,τ⁽ᴺ⁻¹⁾);若某 episode 成功则提前终止,否则从同一初始态开新 episode;
-  2. **inner-loop 适应(self-reflection)**:每 episode 结束,prompt agent 对上一次尝试生成文本反思(具体反馈+下一步计划),策略通过改 context 更新 π⁽ⁿ⁾=πθ(·|H⁽ⁿ⁾),H⁽ⁿ⁾=inter-episode memory(历史轨迹+反思);**反思 step 本身用下个 episode 的 reward 训练**;
-  3. **跨 episode 信用分配**:定义跨 episode 折扣回报 G⁽ⁿ⁾ₜ = 本 episode 内折扣回报 g⁽ⁿ⁾ₜ + Σ_{m>n} γ_traj^{m-n} g⁽ᵐ⁾₀,用 γ_traj 控探索强度;
-  4. **outer-loop 优化**:meta 目标 J(θ)=E[G⁽⁰⁾₀],用标准 policy gradient,**兼容 PPO / GRPO / GiGPO**(默认 GiGPO,critic-free);
+  1. **跨 episode trial**:每个 trial = N=3 个顺序生成的 episode,\(T=(τ⁽⁰⁾,...,τ⁽ᴺ⁻¹⁾)\);若某 episode 成功则提前终止,否则从同一初始态开新 episode;
+  2. **inner-loop 适应(self-reflection)**:每 episode 结束,prompt agent 对上一次尝试生成文本反思(具体反馈+下一步计划),策略通过改 context 更新 \(π⁽ⁿ⁾=πθ(·|H⁽ⁿ⁾)\),\(H⁽ⁿ⁾\)=inter-episode memory(历史轨迹+反思);**反思 step 本身用下个 episode 的 reward 训练**;
+  3. **跨 episode 信用分配**:定义跨 episode 折扣回报 \(G⁽ⁿ⁾_t\) = 本 episode 内折扣回报 \(g⁽ⁿ⁾_t\) + \(Σ_{m>n} γ_{traj}^{m-n} g⁽ᵐ⁾_0\),用 \(γ_{traj}\) 控探索强度;
+  4. **outer-loop 优化**:meta 目标 \(J(θ)=E[G⁽⁰⁾_0]\),用标准 policy gradient,**兼容 PPO / GRPO / GiGPO**(默认 GiGPO,critic-free);
   5. **公平对比设置**:meta-RL 组大小 8、N=3;标准 RL 组大小 24(=8×3),保证每次梯度更新用相同轨迹数。【原文 §4/§5.1】
 - **逐组件必要性 + 消融**:
-  · **self-reflection(inner-loop)**:核心。Table3 消融三种 H⁽ⁿ⁾ 配置——"trajectory-only"(无反思)vs "reflection-only" vs "both"。反思带来 Sokoban +21.6%、MineSweeper +11.0%、Webshop +3.5%(reflection-only/both 对比 trajectory-only)。**反直觉发现**:reflection-only(56.4/80.5/92.8)竟**全面优于 both**(55.9/74.4/89.1)——作者推测纯反思更简洁聚焦、适应更有效。【原文 §6.2 Table3】
+  · **self-reflection(inner-loop)**:核心。Table3 消融三种 \(H⁽ⁿ⁾\) 配置——"trajectory-only"(无反思)vs "reflection-only" vs "both"。反思带来 Sokoban +21.6%、MineSweeper +11.0%、Webshop +3.5%(reflection-only/both 对比 trajectory-only)。**反直觉发现**:reflection-only(56.4/80.5/92.8)竟**全面优于 both**(55.9/74.4/89.1)——作者推测纯反思更简洁聚焦、适应更有效。【原文 §6.2 Table3】
   · **多 episode 跨 episode 回报(meta-RL 本身)**:核心,对照基线就是各种单 episode RL(PPO/RLOO/GRPO/GiGPO),Table1 显示 LAMER pass@3 全面超出。
-  · **γ_traj(探索强度旋钮)**:Fig5 消融——**最优值因环境而异**:Sokoban/Webshop 中间值(0.6)最好,MineSweeper 偏大(0.9)更好(需更长信用分配支持策略性探索)。证明 γ_traj 是有效旋钮但需调。【原文 §6.1 Fig5】
-- **关键机制直觉**:跨 episode 折扣回报 G⁽ⁿ⁾ₜ 的精髓——把"未来 episode 的回报"也算进当前动作的回报里(用 γ_traj 折扣)。**γ_traj 小→偏重当前 episode→快速利用(少探索);γ_traj 大→偏重长期→鼓励早期多探索**(因为"现在探索-即使本局失败-换来后续 episode 高回报"也会被奖励)。这就把"何时探索 vs 利用"编码进策略:early episode 信息收集、later episode reward 最大化,这个"explore-then-exploit"切换本身就是一个 in-context RL 算法。self-reflection 是 inner-loop 的廉价实现——用语言而非梯度承载"从上次失败学到了什么"。【原文 §4】
+  · **\(γ_{traj}\)(探索强度旋钮)**:Fig5 消融——**最优值因环境而异**:Sokoban/Webshop 中间值(0.6)最好,MineSweeper 偏大(0.9)更好(需更长信用分配支持策略性探索)。证明 \(γ_{traj}\) 是有效旋钮但需调。【原文 §6.1 Fig5】
+- **关键机制直觉**:跨 episode 折扣回报 \(G⁽ⁿ⁾_t\) 的精髓——把"未来 episode 的回报"也算进当前动作的回报里(用 \(γ_{traj}\) 折扣)。**\(γ_{traj}\) 小→偏重当前 episode→快速利用(少探索);\(γ_{traj}\) 大→偏重长期→鼓励早期多探索**(因为"现在探索-即使本局失败-换来后续 episode 高回报"也会被奖励)。这就把"何时探索 vs 利用"编码进策略:early episode 信息收集、later episode reward 最大化,这个"explore-then-exploit"切换本身就是一个 in-context RL 算法。self-reflection 是 inner-loop 的廉价实现——用语言而非梯度承载"从上次失败学到了什么"。【原文 §4】
 - **实验与证据**:4 个长 horizon 环境(Sokoban 全可观测/MineSweeper、Webshop、ALFWorld 部分可观测),基模 **Qwen3-4B**(App D.1 另有 Llama3.1-8B-Instruct)。核心证据:① Table1 pass@3——Sokoban 55.9(GiGPO 44.1)、MineSweeper 74.4(+19%)、Webshop 89.1(+14%);**关键洞察**:MineSweeper/Webshop 上 LAMER 的 pass@1 略低于 GiGPO 但 pass@2/3 反超→证明"早期探索、后期适应"(test-time scaling 更强,pass@1→3 涨 13.5% vs baseline <5%);② Fig1/Fig3 轨迹多样性——base 熵最高但成功率低,RL 塌缩多样性,LAMER 保住更高多样性同时成功率高→直接支撑"更优 explore-exploit 平衡"主张;③ Fig4 harder 任务泛化——加 box/mine 难度,LAMER 全难度超 RL(最难时 Sokoban +10%、MineSweeper +5%);④ Table2 ALFWorld OOD——训 Pick/Look/Clean/Heat,测 Cool/Pick2:LAMER Cool +23%(58.1→81.0)、Pick2 +14%(36.0→50.2)。**baseline 公平性**:明确**匹配训练计算预算**(组大小 24 vs 8×3),其余超参全同——很公平。**"看着强但没回答核心问题"的风险**:无明显此类;test-time scaling 用 pass@k 衡量是恰当的。【原文 §5.2/§5.3/§5.4/Table1/2/Fig1/3/4】
-- **假设与失效边界**:【原文】§7 limitation:① 需顺序采样 episode(依赖)→训练时间约 RL 的 2×(并行性差,可用 async rollout 缓解);② 只验证"从易环境泛化到同类/相似难环境",对完全异质新环境未验证。【推断】③ 核心假设="任务可组织成同源不同实例的多 episode 族 + 单 episode 有可反思的反馈信号";若任务一次性(不可重复)或反馈太稀疏导致反思无内容→inner-loop 失效;④ γ_traj 需逐环境调(无自适应),迁移到新环境需重调;⑤ 反思质量依赖基模的总结能力,弱基模可能反思噪声大(作者也假设更强推理模型会更好)。
-- **祛魅总结**:【推断】**真贡献(硬货)**:**首次把 meta-RL 框架用于 LLM agent 训练**,把"跨 episode 折扣回报 + self-reflection inner-loop"做成一个可与任意 critic-free RL(GiGPO)即插即用的训练框架;Fig1/Fig3 的"多样性-成功率"诊断很硬地揭示了"RL 为何过早收敛"(多样性塌缩)且 meta-RL 如何缓解;OOD/harder 泛化证据扎实;公平对比(匹配 compute)做得到位。**包装/可质疑**:① Table3 的"reflection-only 优于 both"是个尴尬而诚实的发现——说明默认配置(both)并非最优,论文主结果若用 reflection-only 会更强,作者如实报告;② γ_traj 逐环境调最优值,削弱了"通用框架"的开箱即用性;③ 只 Qwen3-4B(+附录 Llama3.1-8B),规模偏小;④ 2× 训练时间是实打实的成本。整体诚实度高(主动暴露 reflection-only 反超、2× 耗时),未明显高估。
+- **假设与失效边界**:【原文】§7 limitation:① 需顺序采样 episode(依赖)→训练时间约 RL 的 2×(并行性差,可用 async rollout 缓解);② 只验证"从易环境泛化到同类/相似难环境",对完全异质新环境未验证。【推断】③ 核心假设="任务可组织成同源不同实例的多 episode 族 + 单 episode 有可反思的反馈信号";若任务一次性(不可重复)或反馈太稀疏导致反思无内容→inner-loop 失效;④ \(γ_{traj}\) 需逐环境调(无自适应),迁移到新环境需重调;⑤ 反思质量依赖基模的总结能力,弱基模可能反思噪声大(作者也假设更强推理模型会更好)。
+- **祛魅总结**:【推断】**真贡献(硬货)**:**首次把 meta-RL 框架用于 LLM agent 训练**,把"跨 episode 折扣回报 + self-reflection inner-loop"做成一个可与任意 critic-free RL(GiGPO)即插即用的训练框架;Fig1/Fig3 的"多样性-成功率"诊断很硬地揭示了"RL 为何过早收敛"(多样性塌缩)且 meta-RL 如何缓解;OOD/harder 泛化证据扎实;公平对比(匹配 compute)做得到位。**包装/可质疑**:① Table3 的"reflection-only 优于 both"是个尴尬而诚实的发现——说明默认配置(both)并非最优,论文主结果若用 reflection-only 会更强,作者如实报告;② \(γ_{traj}\) 逐环境调最优值,削弱了"通用框架"的开箱即用性;③ 只 Qwen3-4B(+附录 Llama3.1-8B),规模偏小;④ 2× 训练时间是实打实的成本。整体诚实度高(主动暴露 reflection-only 反超、2× 耗时),未明显高估。
 
 🎯 **机制速览 6 轴** [light]
 | 维度 | 内容 |
 |---|---|
-| **学什么信号** | 环境 reward(跨 episode 长期回报,带 γ_traj 调探索)+ **agent 自生成的 episode 间反思**(self-reflection,存 inter-episode memory)【原文 §4/§6.2】 |
+| **学什么信号** | 环境 reward(跨 episode 长期回报,带 \(γ_{traj}\) 调探索)+ **agent 自生成的 episode 间反思**(self-reflection,存 inter-episode memory)【原文 §4/§6.2】 |
 | **改什么** | **训练期改参数**(critic-free policy-gradient,兼容 GRPO/GiGPO/PPO);**测试期改的是 context 内的反思/历史**(in-context policy adaptation)【原文 §4/§5】 |
 | **何时改** | 训练:跨 episode meta-train(外循环更新参数);**测试:per-episode in-context 反思适应,免梯度**【原文 §1/Abstract】 |
 | **免梯度?** | **混合**——meta-训练需梯度;**测试时 in-context 适应免梯度**(显式归入 meta-RL 的 "in-context inner-loop" 类,区别于 MAML 的 gradient inner-loop)【原文 §2 Related】 |
@@ -53,7 +53,7 @@
 - 【推断】核心假设是"任务可被组织成'同源但不同实例'的多 episode 族,且单 episode 有可反思的反馈信号";若任务无法多 episode 重复(一次性)、或反馈太稀疏导致反思无内容,inner-loop 适应失效——依据:§3 多 episode 设定 + Table3 反思组件的强依赖。
 
 🎯 **对"探索-巩固"idea 对标**(一句)[light]
-- **竞品/可借组件**:与 ORBIT 同属"meta-RL 诱导探索、test-time 靠 context 适应"路线,同样**不向参数巩固**(与本项目 TSRD 的"巩固进参数"互补对照);但其 **γ_traj 控探索强度 + "保住 base 模型轨迹多样性以防过早收敛"** 的诊断与旋钮,对本项目设计"探索阶段不被 RL 过度收窄、为后续巩固保留多样路径"很有借鉴价值,是可直接拿来的探索-保多样性积木。
+- **竞品/可借组件**:与 ORBIT 同属"meta-RL 诱导探索、test-time 靠 context 适应"路线,同样**不向参数巩固**(与本项目 TSRD 的"巩固进参数"互补对照);但其 **\(γ_{traj}\) 控探索强度 + "保住 base 模型轨迹多样性以防过早收敛"** 的诊断与旋钮,对本项目设计"探索阶段不被 RL 过度收窄、为后续巩固保留多样路径"很有借鉴价值,是可直接拿来的探索-保多样性积木。
 
 ⑦ **开源代码 + 框架**:**github.com/mlbio-epfl/LaMer**(论文明示 "Our code is publicly available at https://github.com/mlbio-epfl/LaMer")【原文 §5.2】。**框架:verl + verl-agent**(原文明示 "based on the training framework of verl (Sheng et al. 2025) and verl-agent (Feng et al. 2025)")【原文 §5】。
 💰 资源/成本:基模 Qwen3-4B(附录另有 Llama3.1-8B-Instruct 实验,Table4);明确**匹配 RL 与 meta-RL 的训练计算预算**做公平对比,并以 pass@k 衡量 test-time scaling;具体 GPU 数原文正文未显著标注〔待核〕。

@@ -3,7 +3,7 @@
 > 一句话定位:把"成功+失败对比反思"得到的文本经验，进一步**蒸馏进一组可学习 prompt token(参数化记忆)**，让 agent 在 test-time 终身学习而不撑爆上下文窗。**这是少数把"非参记忆→参数记忆"做成 teacher-student 蒸馏的 agent 自进化工作**，与本调研"探索-巩固"中"巩固=参数化内化"一格高度契合。
 
 ══ 第一层：一眼看懂 [light] ══
-- 🟦 **TL;DR**：LLM agent 终身做一串任务时，过去主流做法是"把成功轨迹检索回来当 few-shot"。两个毛病:(1) 只学成功、不学失败，反复踩同一个坑;(2) 轨迹越攒越多，塞不进上下文窗(论文里直接 OOM)。EvoSC 干两件事——① **对比反思**:把一条失败轨迹和一条成功轨迹摆一起，让 LLM 说清"错在哪一步、怎么避开"(error-prone insight)+"成功的套路"(success pattern)，做成文本经验；② **自巩固(self-consolidation)**:把"很多条历史轨迹"的推理逻辑，用 teacher-student 方式压进**长度=20 的可学习 prompt token Pθ**里(teacher 看 20 条轨迹给出"专家动作"，student 只看 8 条轨迹+Pθ 去逐 token 复现 teacher，CE 损失训练 Pθ)。推理时把 Pθ(隐式直觉)+ 文本经验(显式)拼一起喂模型。
+- 🟦 **TL;DR**：LLM agent 终身做一串任务时，过去主流做法是"把成功轨迹检索回来当 few-shot"。两个毛病:(1) 只学成功、不学失败，反复踩同一个坑;(2) 轨迹越攒越多，塞不进上下文窗(论文里直接 OOM)。EvoSC 干两件事——① **对比反思**:把一条失败轨迹和一条成功轨迹摆一起，让 LLM 说清"错在哪一步、怎么避开"(error-prone insight)+"成功的套路"(success pattern)，做成文本经验；② **自巩固(self-consolidation)**:把"很多条历史轨迹"的推理逻辑，用 teacher-student 方式压进**长度=20 的可学习 prompt token \(P_θ\)**里(teacher 看 20 条轨迹给出"专家动作"，student 只看 8 条轨迹+\(P_θ\) 去逐 token 复现 teacher，CE 损失训练 \(P_θ\))。推理时把 \(P_θ\)(隐式直觉)+ 文本经验(显式)拼一起喂模型。
 - **最巧的一步**:**参数化轨迹巩固(PTC, §4.2)**。抽掉它，方法就退化成"又一个成功/失败文本回放"——而文本回放在 Exp 一多就 OOM(表1/表2 里 baselines 在 Exp=16/32 全线 OOM)。PTC 把"读了多少历史"和"占多少 token"解耦:无论历史多长，上下文长度恒定(论文称 "constant and efficient context length")。这是它相对 AWM/TER/A-MEM 唯一的硬性结构优势。【原文 §5.2 "Overcoming Context Limitations"】
 
 ══ 第二层：为什么做（写透） ══
@@ -21,7 +21,7 @@
 - **方法流水线**(Algorithm 1 推理工作流):
   1. **检索**:从成功库 Rsucc 取 top-K 最近成功对话 Crec_succ。
   2. **对比抽取(§4.1)**:Expc = LLM(Pc ∪ Crec_succ ∪ Cfail) 抽 error-prone insight;Exps = LLM(Ps ∪ Crec_succ) 抽 success pattern。两者各进一个 **FIFO 队列**(Qerr/Qsucc)——只留近期教训、自动淘汰旧错误。
-  3. **参数巩固(§4.2，离线/周期性触发)**:对每条成功轨迹的每一步 s，teacher 用"多轨迹 Emany(20 条)+ 当前历史"生成专家动作 A*_{k,s}(Eq.5);student 用"少轨迹 Efew(8 条)+ 可学习 Pθ + 历史"复现 \hat{A}(Eq.6);损失 = 跨所有 round/token 的 CE，让 student(只靠 Pθ+少量轨迹)对齐 teacher(靠多轨迹)的逐 token 输出(§4.2 末公式)。**只训 Pθ(20 token)，backbone 冻结**【推断:正文称 "compact learnable parameters / learnable prompt"，未提改主干权重，判定为软提示微调；依据=Eq.6 仅 Pθ 为可学习量】。
+  3. **参数巩固(§4.2，离线/周期性触发)**:对每条成功轨迹的每一步 \(s\)，teacher 用"多轨迹 \(E_{many}\)(20 条)+ 当前历史"生成专家动作 \(A^*_{k,s}\)(Eq.5);student 用"少轨迹 \(E_{few}\)(8 条)+ 可学习 \(P_θ\) + 历史"复现 \(\hat{A}\)(Eq.6);损失 = 跨所有 round/token 的 CE，让 student(只靠 \(P_θ\)+少量轨迹)对齐 teacher(靠多轨迹)的逐 token 输出(§4.2 末公式)。**只训 \(P_θ\)(20 token)，backbone 冻结**【推断:正文称 "compact learnable parameters / learnable prompt"，未提改主干权重，判定为软提示微调；依据=Eq.6 仅 \(P_θ\) 为可学习量】。
   4. **增强推理(§4.3)**:最终输入 Ik = Pθ ⊕ Psys ⊕ Expc ⊕ Exps ⊕ Cs ⊕ tk(参数直觉 + 显式文本经验同时注入)。
   5. **更新仓库**:任务成功则全对话入 Rsucc、Exps 进 Qsucc;失败则 Expc 进 Qerr。
 - **逐组件必要性(消融 表3 + 图6)**:
@@ -42,7 +42,7 @@
   - 【推断】PTC 周期性触发需要"足量成功轨迹"做 teacher 监督——**冷启动/低成功率域**(KG Exp=0 时 Llama 仅 32.1%)，可巩固的成功轨迹稀少，参数化收益受限。依据:Eq.5 的 teacher 监督来自成功轨迹集 E。
   - 【推断】Pθ 是**domain-specific** 训练的(系统 prompt 编码 domain 规则)，跨域迁移能力未测;FIFO 队列会丢掉"久远但仍有用"的罕见错误教训。依据:§3 定义 D=⟨Psys,T⟩ 为 domain-specific，§4.1 明说 FIFO "automatically pruning outdated error"。
 - **祛魅总结**:
-  - 真贡献(硬货):**把 agent 终身经验做成"非参文本 + 参数 soft-prompt"双层，并用 teacher(多轨迹)→student(少轨迹+Pθ)的逐 token CE 蒸馏实现参数化内化**;以及"对比成败"而非"只回放成功"。前者是结构创新(恒定上下文长度)、后者是实用增量。
+  - 真贡献(硬货):**把 agent 终身经验做成"非参文本 + 参数 soft-prompt"双层，并用 teacher(多轨迹)→student(少轨迹+\(P_θ\))的逐 token CE 蒸馏实现参数化内化**;以及"对比成败"而非"只回放成功"。前者是结构创新(恒定上下文长度)、后者是实用增量。
   - 包装/营销成分【推断】:① 反复类比"人类认知巩固(cite Nature Human Behaviour)"是修辞，方法本质就是 soft-prompt 蒸馏 + 文本反思，无神经科学机制对应;② "self-evolving / lifelong"标签下，**主干参数从不更新**——进化只发生在 20 个 prompt token 和两个 FIFO 文本队列里，"进化"幅度有限;③ Algorithm 1 文末把框架名笔误写成 "REC framework"(正文别处都叫 EvoSC)，且摘要/结论有重复病句("a dual-stage... a dual-stage agent evolution paradigm")——**写作完成度偏低**，提示这是早期预印本。
 
 ══ 结构化抽取 ══
@@ -54,7 +54,7 @@
 | 改什么 | **参数(仅 20-token 可学习 prompt Pθ，主干冻结)** + **记忆(两个 FIFO 文本经验队列)**;不改主干权重、不改 harness |
 | 何时改 | **混合**:文本经验=在线 per-episode(每完成一任务即抽 Expc/Exps 入队);参数 Pθ=**周期性/离线批量**("at periodic intervals" 触发 self-consolidation) |
 | 免梯度? | **混合**:文本反思+检索=免梯度;PTC=**需梯度**(对 Pθ 做 token-level CE 反传) |
-| 记忆-技能生命周期 | 写入(成功→Rsucc/Qsucc，失败→Qerr)→检索(top-K 最近)→**遗忘(FIFO 淘汰旧条目)**→巩固(成功轨迹周期性蒸馏进 Pθ);无跨 agent 共享 |
+| 记忆-技能生命周期 | 写入(成功→Rsucc/Qsucc，失败→Qerr)→检索(top-K 最近)→**遗忘(FIFO 淘汰旧条目)**→巩固(成功轨迹周期性蒸馏进 \(P_θ\));无跨 agent 共享 |
 | 防遗忘机制 | **隔离式**(经验在外置队列/Pθ 中，主干不动→无主干灾难遗忘);**但 FIFO 本身会主动遗忘旧文本经验**;无几何共识/merging/KL 投影 |
 
 - ⑦ **开源代码 + 框架/harness**:**未找到开源代码**。正文/摘要/脚注均未给 GitHub 链接，无 reproducibility 声明。训练框架未点名(只说 soft-prompt + token-level CE，2×A40);评测 harness 复用 **LifelongAgentBench**(Zheng 2025b 的现成 benchmark/环境)。【推断:实现极可能是自研脚本 + HF Transformers，依据=无框架声明且方法为标准 soft-prompt 训练】
@@ -66,7 +66,7 @@
   - *缺口*:无几何/merging 防遗忘(主干靠"不动"来免遗忘，等于回避问题);跨域/规模化未验证;PTC 与"探索"是离线解耦的，非在线 per-step 内化。
 - 🔭 **开放问题/未来方向**:
   - 【原文 §7】更强的经验检索机制;扩到 70B+ 与更多 LLM 架构以释放参数化巩固潜力。
-  - 【推断】把 PTC 从"离线周期"改为"在线增量内化"(每 episode 微调 Pθ)、解决 Pθ 自身的可塑性-稳定性权衡;让 Pθ 跨域共享/组合;失败轨迹也参与参数化(目前只成功轨迹做 teacher 监督)。
+  - 【推断】把 PTC 从"离线周期"改为"在线增量内化"(每 episode 微调 \(P_θ\))、解决 \(P_θ\) 自身的可塑性-稳定性权衡;让 \(P_θ\) 跨域共享/组合;失败轨迹也参与参数化(目前只成功轨迹做 teacher 监督)。
 - 🖼 **关键图 top-2** [light]：
 
 ![图3-EvoSC 双记忆 pipeline](../figures/evosc_fig1.png)

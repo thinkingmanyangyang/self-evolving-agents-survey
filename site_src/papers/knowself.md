@@ -4,7 +4,7 @@
 
 ══ 第一层:一眼看懂 ══
 
-- 🟦 **TL;DR**:让 agent 学会**"看情况办事"**——遇到每一步,自己判断属于三种情形哪种:**Fast thinking**(一眼会做,直接给动作)/**Slow thinking**(得多想一下、需要自我反思才对)/**Knowledgeable thinking**(自己不会,得调外部知识)。做法是**数据驱动**:先让 agent 在环境里自探索,用一个**启发式判据**(直接预测的动作对不对、重想后对不对)把轨迹的每一步打上情形标签,并插入**特殊 token**(`Reflection<r>…</r>` 或 `Knowledge<k>…</k>`)。再**两阶段训练**(先 SFT 学会基本模式,再用 RPO=DPO+长度归一化 NLL 强化判断力)。推理时 agent **自己生成这些特殊 token** 来表态"我现在该反思 / 该取知识 / 直接做",从而**用极少的反思和知识**(知识使用率仅 15%-26%)就拿到最优规划效果,省训练/推理成本。【原文 摘要+§3+§4】
+- 🟦 **TL;DR**:让 agent 学会**"看情况办事"**——遇到每一步,自己判断属于三种情形哪种:**Fast thinking**(一眼会做,直接给动作)/**Slow thinking**(得多想一下、需要自我反思才对)/**Knowledgeable thinking**(自己不会,得调外部知识)。做法是**数据驱动**:先让 agent 在环境里自探索,用一个**启发式判据**(直接预测的动作对不对、重想后对不对)把轨迹的每一步打上情形标签,并插入**特殊 token**(`Reflection<r>…</r>` 或 `Knowledge<k>…</k>`)。再**两阶段训练**(先 SFT 学会基本模式,再用 \(RPO=DPO+\)长度归一化 NLL 强化判断力)。推理时 agent **自己生成这些特殊 token** 来表态"我现在该反思 / 该取知识 / 直接做",从而**用极少的反思和知识**(知识使用率仅 15%-26%)就拿到最优规划效果,省训练/推理成本。【原文 摘要+§3+§4】
 
 - **最巧的一步**:**把"该不该反思/该不该取知识"这个元认知决策,显式编码成 agent 自己生成的特殊 token,并用一个三分类启发式判据自动造训练数据**。抽掉这一步(就是 ablation 的 `w/o all`,只保留 fast thinking、退化成在 gold 轨迹上普通 SFT),性能明显下降(Figure 3a:Llama-8B ~78 → KnowSelf ~84;Gemma-2B 更明显)。它把"无差别灌知识(flood irrigation)"换成"按需、自感知地取用",这是全文立意与涨点的根。【原文 Figure 3a, §1】
 
@@ -26,16 +26,16 @@
 - **动机链**:agent 要稳健规划 → 但无差别灌轨迹/知识=漫灌,既贵又害(弱模型被知识反噬、训轨迹过拟合 pattern)→ 人类靠情境自感知按需调用反思/知识 → 所以给 agent 一个"判断当前该 fast/slow/knowledgeable"的元认知 → 用启发式判据(预测动作对错×重想对错)自动给轨迹打三类标签 + 特殊 token → SFT 教会基本模式,但正确动作空间窄、SFT 不够稳/不够强 → 再用 RPO(DPO 偏好 + 长度归一 NLL 稳训)强化判断 → 推理时 agent 自生成特殊 token 自我表态。为什么不直接 prompt 现成强模型?因为实测 **O1/DeepSeek-R1 仅靠 prompt 学不会这种 agentic self-awareness**(Figure 5 案例:O1 乱调知识致错、R1 死信自己重想仍错),必须在数据/训练层面做。【原文 §1, §3, Figure 5】
 
 - **与最近邻 WKM / 慢思考工作的 Δ**:
-  - vs **WKM(同团队 World-Knowledge-Model)**:WKM 总在每步用知识模型提供全局/局部知识(Know%=100%);KnowSelf **只在"自己判断不会"时才取知识**(Know%≈15-26%),且把决策权交给 agent 自身而非外挂知识模型。结果用更少知识反超 WKM(Table 2)。
+  - vs **WKM(同团队 World-Knowledge-Model)**:WKM 总在每步用知识模型提供全局/局部知识(\(Know\%=100\%\));KnowSelf **只在"自己判断不会"时才取知识**(\(Know\%≈15\text{-}26\%\)),且把决策权交给 agent 自身而非外挂知识模型。结果用更少知识反超 WKM(Table 2)。
   - vs **fast/slow thinking 范式(System-1/2)**:别人只分快/慢两档;KnowSelf **第三档引入"外部知识"**进 thinking system——承认"有些步骤不是想不想得到的问题,而是根本缺知识"。为什么有用:消融显示"只反思(w/o know)在多数情形反而优于只灌知识(w/o ret)",说明很多错是 pattern 约束(反思能解)、少数才真缺知识(才需取知识),两者必须分流。【原文 §2, §4.2, Figure 3a】
 
 ══ 第三层:怎么做 + 靠不靠谱 ══
 
 - **方法流水线**(输入 gold (历史,动作) 对 → 输出一个会"自感知分流"的 agent):
   1. **知识系统构建(轻量、离线)**:沿用并打磨 Chen et al.(2024)的简单方法,用极少轨迹离线建一个知识库 K + 一个**知识选择模块 R**(按历史 ht 检索最合适的一条知识)。"知识"可以是符号/参数化/网搜等多种形态。【原文 §3.1】
-  2. **情境判据 C(核心)**:给定历史 ht、gold 动作 a、agent 直接预测 ap、重想后 ar。**Fast**: ap=a(直接对);**Slow**: ap≠a 但 ar=a(重想后对);**Knowledgeable**: ap,ar 都≠a(重想还错→缺知识)。【原文 §3.2】
-  3. **数据构造**:按 C 给输出加料——Fast: y=a;Slow: y=[ap, Reflection`<r>`ret`</r>`, a]\(ret=重想的 CoT);Knowledgeable: y=[Knowledge`<k>`know`</k>`, a]\(know=R 选的知识)。遍历所有对得到自感知数据 Dself。【原文 §3.3, Table 1】
-  4. **两阶段训练**:① **SFT**(自回归 loss,得参考模型 πref);② 让 πref 在 Dself 上探索、收集错动作做负样本组成 Dpair,用 **RPO loss = DPO + α·长度归一 NLL**(Pang et al. 2024;因正确动作空间窄,重引 SFT 项稳训)。训练时**扩词表**以容纳新特殊 token。【原文 §3.3, 式4-7】
+  2. **情境判据 C(核心)**:给定历史 \(h_t\)、gold 动作 \(a\)、agent 直接预测 \(a_p\)、重想后 \(a_r\)。**Fast**: \(a_p=a\)(直接对);**Slow**: \(a_p≠a\) 但 \(a_r=a\)(重想后对);**Knowledgeable**: \(a_p,a_r\) 都\(≠a\)(重想还错→缺知识)。【原文 §3.2】
+  3. **数据构造**:按 C 给输出加料——Fast: \(y=a\);Slow: \(y=[a_p,\) Reflection`<r>`ret`</r>`\(, a]\)(ret=重想的 CoT);Knowledgeable: \(y=[\)Knowledge`<k>`know`</k>`\(, a]\)(\(know=R\) 选的知识)。遍历所有对得到自感知数据 \(D_{self}\)。【原文 §3.3, Table 1】
+  4. **两阶段训练**:① **SFT**(自回归 loss,得参考模型 \(π_{ref}\));② 让 \(π_{ref}\) 在 \(D_{self}\) 上探索、收集错动作做负样本组成 \(D_{pair}\),用 **RPO loss = DPO + \(α·\)长度归一 NLL**(Pang et al. 2024;因正确动作空间窄,重引 SFT 项稳训)。训练时**扩词表**以容纳新特殊 token。【原文 §3.3, 式4-7】
   5. **自感知推理**:agent 第一步后若停→直接用预测动作进历史;若生成 `Reflection`→继续反思再落动作;若生成 `Knowledge`→用 R 取一条知识拼进上下文再续。【原文 §3.3】
 
 - **逐组件必要性**(消融 Figure 3a,做得较全):
@@ -80,7 +80,7 @@
 
 - ⑦ **开源代码 + 框架/harness**:**已开源** https://github.com/zjunlp/KnowSelf 【原文 §1 脚注1,已 `git ls-remote` 核验 HEAD=397da47 可达】。训练 harness:**全参数微调 + DeepSpeed**(Rasley 2020)+ **AdamW**;推理用 **vLLM** 加速(Llama-8B);8×A800-80G。RPO/DPO loss 为**自实现**(RPO=Iterative RPO,Pang et al. 2024 的 DPO+NLL 变体)。**未具名 TRL / LLaMA-Factory / veRL / OpenRLHF 等框架**(正文/附录G 只点名 DeepSpeed 与 vLLM)。〔待核:仓库内是否实际基于 LLaMA-Factory 等高层框架——正文未提,需查 repo 文件级〕【原文 §4.1, Appendix G】
 
-- 💰 **资源/成本与可扩展性**:训练成本中等——全参微调 2B/7B,8×A800,两阶段(Stage-I 3 epoch lr2e-5 bs8;Stage-II 1 epoch lr5e-7 bs3)。**核心卖点就是省推理成本**:Know%≈15-26%(对比 baseline 的 0% 或 100%),即只在少数步触发反思/取知识,显著降低反思与知识注入的 token 开销和延迟;且**用 2B/7B 小模型逼近 GPT-4o**,部署成本低。知识库离线轻量(极少轨迹即可建)。【原文 §4.2, Appendix G】
+- 💰 **资源/成本与可扩展性**:训练成本中等——全参微调 2B/7B,8×A800,两阶段(Stage-I 3 epoch lr2e-5 bs8;Stage-II 1 epoch lr5e-7 bs3)。**核心卖点就是省推理成本**:\(Know\%≈15\text{-}26\%\)(对比 baseline 的 0% 或 100%),即只在少数步触发反思/取知识,显著降低反思与知识注入的 token 开销和延迟;且**用 2B/7B 小模型逼近 GPT-4o**,部署成本低。知识库离线轻量(极少轨迹即可建)。【原文 §4.2, Appendix G】
 
 - 🎯 **对"探索-巩固"idea 对标**:**支撑 + 强可借组件 + 一处直接同构**。
   - **支撑**:它是"探索(自探索轨迹 + 重想)→巩固(把'何时该反思/取知识'的元认知固化进参数)"的训练侧实例;且核心思想就是**不要无差别灌、要按需在关键步介入**——与本项目"**单点接管 / 在关键步 path-recovery**"的理念高度一致。

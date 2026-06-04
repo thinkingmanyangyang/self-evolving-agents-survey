@@ -3,7 +3,7 @@
 ══ 第一层：一眼看懂 [light] ══
 
 - 🟦 **TL;DR**：【原文 Abstract+§1】要解决的问题:现有 agent 协议(MCP、A2A)只管"调用"和"消息传递",**把 agent 内部资源(prompt/工具/记忆)的状态当黑箱**,没有生命周期管理、版本谱系、可控状态变更接口 → 导致自进化实现都是"东拼西凑的胶水代码",不可组合、不可审计、不可复现。核心做法:**AUTOGENESIS PROTOCOL (AGP)——一个两层自进化协议,把"进化什么"和"怎么进化"解耦**。**Layer 1 = RSPL(资源基质层)**:把 prompt、agent、tool(含本地工具/MCP/skill)、environment、memory 五类东西统一建模为"协议注册资源",赋予显式状态、生命周期、版本化接口(资源本身是**被动的**——不含优化逻辑、不能自改,只能被上层通过接口改);**Layer 2 = SEPL(自进化层)**:用控制论思路定义一套**类型化算子代数**(reflect/select/improve/evaluate/commit 的闭环),每次自改都可审计、可回滚、安全。基于 AGP 落地出 **AUTOGENESIS SYSTEM (AGS)**:一个多 agent 系统(planning agent + 多个 sub-agent 挂在 Agent Bus 上),运行时动态注册/检索/精化协议资源。在 GPQA/AIME/GAIA/HLE/自建 LeetCode 五个 benchmark 上一致超强 baseline。**开源**:github.com/DVampire/Autogenesis(已核实可达)。
-- **最巧的一步**：【推断,依据 §3.2.1 variable lifting + §3.2.2 算子代数】**"变量提升(variable lifting)"——把异构的 RSPL 资源(工具代码、系统 prompt、agent 等)统一投影成"可进化变量"集合 V_evo,并用一个二元 learnability mask g_v∈{0,1} 显式圈定"可训练子空间"**。抽掉这层统一抽象,SEPL 的算子就无法"用同一套优化逻辑作用于异构组件"——正是因为 prompt/工具/agent 都被同质化成同一种"变量",同一个 reflect→commit 闭环(乃至 TextGrad/GRPO)才能无差别地优化任意组件。这是把"启发式改改 prompt"升格为"形式化优化协议"的关键。
+- **最巧的一步**：【推断,依据 §3.2.1 variable lifting + §3.2.2 算子代数】**"变量提升(variable lifting)"——把异构的 RSPL 资源(工具代码、系统 prompt、agent 等)统一投影成"可进化变量"集合 \(V_{evo}\),并用一个二元 learnability mask \(g_v∈\{0,1\}\) 显式圈定"可训练子空间"**。抽掉这层统一抽象,SEPL 的算子就无法"用同一套优化逻辑作用于异构组件"——正是因为 prompt/工具/agent 都被同质化成同一种"变量",同一个 reflect→commit 闭环(乃至 TextGrad/GRPO)才能无差别地优化任意组件。这是把"启发式改改 prompt"升格为"形式化优化协议"的关键。
 
 ══ 第二层：为什么做（写透） ══
 
@@ -20,9 +20,9 @@
 ══ 第三层：怎么做 + 靠不靠谱 ══
 
 - **方法流水线**(§3-§4, 图1)：
-  1. **RSPL 建模(进化基质)**:五类实体(PROMPT/AGENT/TOOL/ENV/MEM),每个资源 = 实体元组 e=(name, desc, 映射 φ:X→Y, 可进化标记 g, metadata) + 注册记录 c(版本串 v、实现描述符、实例化参数、LLM 交互的导出表征如 function-calling schema)。**资源被动**:不含优化逻辑、不能自改,只能经 context manager + server interface 受控变更。
+  1. **RSPL 建模(进化基质)**:五类实体(PROMPT/AGENT/TOOL/ENV/MEM),每个资源 = 实体元组 \(e=(\text{name}, \text{desc}, φ, g, \text{metadata})\),其中 \(φ:X→Y\) 为映射、\(g\) 为可进化标记 + 注册记录 c(版本串 v、实现描述符、实例化参数、LLM 交互的导出表征如 function-calling schema)。**资源被动**:不含优化逻辑、不能自改,只能经 context manager + server interface 受控变更。
   2. **四个基础设施服务**:model manager(统一多 provider API + 路由/fallback)、version manager(不可变快照 + 版本谱系 → 回滚/分支/审计)、dynamic manager(运行时序列化 + 热插拔,不重启系统)、trace manager(细粒度执行 trace → 可解释/调试/回溯优化)。
-  3. **SEPL 形式化(进化逻辑)**:variable lifting 把资源投影成可进化变量集 V_evo = ∪类型实体 ∪ {y}(y=执行产物:最终输出+推理 trace,作回溯优化的观测基础);learnability mask g_v 圈定可训练子空间。**SEPL 算子** f: V_evo×P_in → V_evo×P_out 是类型化、可组合函数(P=携带 trace/假设/梯度/reward 的消息空间);进化环 = 算子序列 (f_n∘…∘f_1) 迭代至收敛/预算耗尽。
+  3. **SEPL 形式化(进化逻辑)**:variable lifting 把资源投影成可进化变量集 \(V_{evo}\)(= 各类型实体并上 \(\{y\}\),\(y\)=执行产物:最终输出+推理 trace,作回溯优化的观测基础);learnability mask \(g_v\) 圈定可训练子空间。**SEPL 算子** \(f: V_{evo}×P_{in} → V_{evo}×P_{out}\) 是类型化、可组合函数(\(P\)=携带 trace/假设/梯度/reward 的消息空间);进化环 = 算子序列 \((f_n∘…∘f_1)\) 迭代至收敛/预算耗尽。
   4. **reflection optimizer 实例化(主实例)**:五算子闭环——**REFLECT**(trace+状态→因果失败假设)→**SELECT**(从假设选目标可进化实体,生成具体修改提案)→**IMPROVE**(经 RSPL 接口应用提案→候选状态)→**EVALUATE**(对目标+安全不变量打分)→**COMMIT**(条件接受或回滚)。
   5. **AGS 系统**:**Agent Bus 交互模型**——planning agent 与所有 sub-agent 作一等参与者注册到共享总线,所有 agent 间通信仅经标准总线消息(松耦合、可观测、并发) → planning agent 产出 `plan.md`(任务描述+子任务 todo+流程图+执行历史+结果摘要),分派子任务给指定 sub-agent(deep researcher / browser-use / deep analyzer / vibe coding agent),独立子任务并发、依赖串行,collect-and-replan 循环 → **自进化交织其中**:执行 trace 信号可纠正失败/次优时触发 SEPL 环,vibe coding agent 驱动 agent prompt/代码精化,进化后的 agent 注册为版本化 RSPL 资源**跨后续任务复用**。
 - **逐组件必要性**：

@@ -12,7 +12,7 @@
 - **与最近邻的 Δ**:相比 **SkillRL(同套基准、同班人马、同 base/teacher 的直系前作)**,关键差异=**把 SkillRL 的"扁平分层库"升级成"带 typed 边的有向依赖图 + 拓扑排序检索 + 渐进解锁课程 + 节点统计驱动的 deprecate/merge/split 生命周期"**。这个差异有用,因为:① 拓扑序让 agent 天然拿到 simple→complex 的有序脚手架(复合任务增益尤大);② 图统计能自调节防膨胀(解决 SkillRL 只增不删的问题)。消融里 "w/o Graph Structure" 这一行的数字 89.9/72.7 正好就是 SkillRL,直接量化了图带来的增量(ALF +0.7、WebShop +11.7)。【原文 §4.2, §4.3】
 
 ══ 第三层:怎么做 + 靠不靠谱 ══
-- **方法流水线(三段闭环,Fig.1)**:① **Graph Construction**——teacher(o3)从成功/失败轨迹蒸出技能(title/principle/applicability/category),并建立 prerequisite(先决)/enhance(增强)/co-occur(共现)三类 typed 边,算每节点的 level;② **Graph-aware Retrieval**——给新任务:**seed select**(语义选种子技能)→ **backward BFS** 补齐先决技能 → **forward beam** 沿强边扩展 → **topological ordering** 出依赖有序的技能子图(Kmax=8)注入 context;③ **Graph Evolution**(每 validation step)——**节点级**:失败驱动 insert / Jaccard≥0.85 merge / p̂∈[0.15,0.4]且高用量 split / nuse≥20 且 p̂<0.15 deprecate(永久排除);**边级**:α 加权 reinforce / 自动 discover 新 co-occur / γ 衰减 prune;**渐进解锁**:先开 level-0,平均 p̂≥θunlock=0.6 才解锁下一层。策略侧 GRPO(β=0.01,ϵc=0.2,G=8,lr 1e-6)在有序技能 context 上更新。飞轮:Richer Trajectories→Better Graph→Better Retrieval→Stronger Policy。【原文 §3, Fig.1】
+- **方法流水线(三段闭环,Fig.1)**:① **Graph Construction**——teacher(o3)从成功/失败轨迹蒸出技能(title/principle/applicability/category),并建立 prerequisite(先决)/enhance(增强)/co-occur(共现)三类 typed 边,算每节点的 level;② **Graph-aware Retrieval**——给新任务:**seed select**(语义选种子技能)→ **backward BFS** 补齐先决技能 → **forward beam** 沿强边扩展 → **topological ordering** 出依赖有序的技能子图(Kmax=8)注入 context;③ **Graph Evolution**(每 validation step)——**节点级**:失败驱动 insert / \(\text{Jaccard}\geq0.85\) merge / \(\hat p\in[0.15,0.4]\) 且高用量 split / \(n_{use}\geq20\) 且 \(\hat p<0.15\) deprecate(永久排除);**边级**:\(\alpha\) 加权 reinforce / 自动 discover 新 co-occur / \(\gamma\) 衰减 prune;**渐进解锁**:先开 level-0,平均 \(\hat p\geq\theta_{unlock}=0.6\) 才解锁下一层。策略侧 \(\text{GRPO}(\beta=0.01,\epsilon_c=0.2,G=8,lr\ 1e\text{-}6)\) 在有序技能 context 上更新。飞轮:Richer Trajectories→Better Graph→Better Retrieval→Stronger Policy。【原文 §3, Fig.1】
 - **逐组件必要性(均有消融,Table 3:SkillGraph 90.6/84.4)**:① **graph-aware retrieval**——去掉在 **ALFWorld 暴跌 -31.2(至 59.4)**,最大单项降幅,证明刚性多步子任务(Clean/Heat)严重依赖先决有序的技能序列;② **graph structure**——去掉(退回 SkillRL 扁平)在 WebShop 掉 -11.7(至 72.7),说明灵活导航任务里"对的技能集"比顺序更重要;③ **graph evolution**——去掉在 WebShop 掉 -14.1(至 70.3),证明维持高质量演化技能集是 WebShop 主要增益来源;④ **cold-start SFT**——去掉双环境合计降最多(-17.2,73.4/67.2),证明好初始化对 RL 在复杂 agent 环境收敛至关重要。四组件全有消融,且两环境的瓶颈不同(ALF 靠顺序、WebShop 靠技能质量)分析到位。【原文 §4.3, Table 3】
 - **关键机制(直觉)**:① **拓扑排序检索**把"无序提示"变成"由简到繁的有序脚手架"——对必须按先决顺序执行的任务(Heat 前必先 locate/pick)是质变;② **节点统计驱动生命周期**——用 usage/success/p̂ 这些运行时统计自动 merge/split/deprecate,让图自净化、自调节(Fig.2:节点 ~20→140 但 active 早早 plateau,deprecation 剪掉失败技能,防无界膨胀);③ **渐进解锁=课程式隔离**——掌握底层再开高层,既防遗忘又防"过早暴露高级技能"。【原文 §3, §4.3, Fig.2】
 - **实验与证据(支撑核心主张的关键数字)**:
@@ -27,12 +27,12 @@
 ══ 机制速览 6 轴 [light] ══
 | 维度 | 内容 |
 |---|---|
-| **学什么信号** | 环境二元 reward（成功/失败）+ 老师模型(o3)蒸馏技能与关系 + 节点运行统计(usage/success/ p̂) 驱动图进化 |
-| **改什么** | ① 策略参数（GRPO 更新 πθ）② 外部技能图（节点+typed edges，prompt-level 注入）——共进化 |
+| **学什么信号** | 环境二元 reward（成功/失败）+ 老师模型(o3)蒸馏技能与关系 + 节点运行统计(usage/success/ \(\hat p\)) 驱动图进化 |
+| **改什么** | ① 策略参数（GRPO 更新 \(\pi_\theta\)）② 外部技能图（节点+typed edges，prompt-level 注入）——共进化 |
 | **何时改** | 策略：在线 per-step（GRPO）；图：离线批量（每个 validation step 跑整套图进化 + 渐进解锁检查） |
-| **免梯度?** | **混合**：参数走梯度(SFT+GRPO)；图的节点/边操作全免梯度（老师生成 + 统计规则:Jaccard 合并、p̂ 阈值拆/弃、α 加权 γ 衰减剪枝） |
-| **记忆-技能生命周期** | 写入(蒸馏 title/principle/applicability/category + 建 enhance/co-occur 边)→检索(seed→BFS→beam→toposort，Kmax=8)→**淘汰(deprecate: nuse≥20 且 p̂<0.15 永久排除)** + 合并(Jaccard≥0.85)/拆分(p̂∈[0.15,0.4]且高用量)→**共享(节点统计 + co-occur 自动发现新关系)**；节点 ~20→140 但 active 早早 plateau（自调节防膨胀，**优于 SkillRL 的只增不删**） |
-| **防遗忘机制** | KL 投影（GRPO 锚定 πref=SFT）；渐进解锁=课程式隔离（先 level-0，掌握(平均 p̂≥θunlock=0.6)再开下一层），既防遗忘又防"过早暴露高级技能" |
+| **免梯度?** | **混合**：参数走梯度(SFT+GRPO)；图的节点/边操作全免梯度（老师生成 + 统计规则:Jaccard 合并、\(\hat p\) 阈值拆/弃、\(\alpha\) 加权 \(\gamma\) 衰减剪枝） |
+| **记忆-技能生命周期** | 写入(蒸馏 title/principle/applicability/category + 建 enhance/co-occur 边)→检索(seed→BFS→beam→toposort，Kmax=8)→**淘汰(deprecate: \(n_{use}\geq20\) 且 \(\hat p<0.15\) 永久排除)** + 合并(\(\text{Jaccard}\geq0.85\))/拆分(\(\hat p\in[0.15,0.4]\) 且高用量)→**共享(节点统计 + co-occur 自动发现新关系)**；节点 ~20→140 但 active 早早 plateau（自调节防膨胀，**优于 SkillRL 的只增不删**） |
+| **防遗忘机制** | KL 投影（GRPO 锚定 \(\pi_{ref}\)=SFT）；渐进解锁=课程式隔离（先 level-0，掌握(平均 \(\hat p\geq\theta_{unlock}=0.6\))再开下一层），既防遗忘又防"过早暴露高级技能" |
 
 🖼 **关键图 top-2** [light]：
 ![图1-SkillGraph 闭环共进化总览（原文 Figure 1）](../figures/skillgraph_evolving_fig1.png)
@@ -48,6 +48,6 @@
 **支撑 + 强可借组件**：与"探索-巩固"同构且更进一步——把 path-selection/path-recovery 经验**结构化为带先决关系的图**，最贴合 TSRD 的"路径选择"语义；可借积木=【typed 依赖图 + 拓扑排序检索(把无序提示变成 simple→complex 的有序脚手架)】+【渐进解锁课程(掌握底层再开高层，天然防遗忘+防过早暴露)】+【节点统计驱动的 deprecate/merge/split 生命周期(解决 SkillRL 只增不删的膨胀)】；是 SkillRL 的直系竞品/升级，二者构成"扁平库→图"的演进对。
 
 ══ 结构化补充 ══
-- ⑦ **开源代码 + 框架/harness**：**正文/附录全文未给开源链接**（无 GitHub），属"未找到/未开源"〔待核：可能后续放出〕。RL=GRPO(β=0.01,ϵc=0.2,G=8,lr 1e-6)，base=Qwen2.5-7B-Instruct + cold-start SFT，teacher=OpenAI o3；**底层 RL 框架未在文中标注**〔待核〕。
+- ⑦ **开源代码 + 框架/harness**：**正文/附录全文未给开源链接**（无 GitHub），属"未找到/未开源"〔待核：可能后续放出〕。RL=GRPO\((\beta=0.01,\epsilon_c=0.2,G=8,lr\ 1e\text{-}6)\)，base=Qwen2.5-7B-Instruct + cold-start SFT，teacher=OpenAI o3；**底层 RL 框架未在文中标注**〔待核〕。
 - 💰 资源/成本：8× A100 80GB 单节点，全部训练  run 合计 **~280 GPU-hours**（附录 G）；额外成本=o3 老师 API（蒸馏+SFT 数据+每验证步图进化）。context 比 SkillRL 扁平检索更短(Fig3 右，~2900–3000 vs 更高)。
 - 🔭 开放问题：自蒸馏/critic-based 技能生成降老师依赖；跨环境技能图迁移(一域 bootstrap 另一域)；scale 到更大模型。

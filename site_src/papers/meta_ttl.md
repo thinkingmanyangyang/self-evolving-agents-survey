@@ -20,15 +20,15 @@
 ══ 第三层：怎么做 + 靠不靠谱 ══
 
 - **方法流水线(双层,对应 Fig 2)**：
-  1. **TTL 形式化(§3.1)**：每个任务实例 g 是有限步 POMDP；一次 **TTL session = K 个连续 episode** \(ξ_g=(τ_1,…,τ_K)\),**每 episode 后环境重置**(所以跨回合的进步只能来自 agent 内部的适应,而非环境状态延续)。打分用 **W-AUC**(Eq.1):\(Σ_k w_k·J(τ_k) / Σ_k w_k·J_max(g)\),**权重 w_k=k**(后期 episode 权重更大,奖励"持续改进")。
-  2. **两个策略(§3.2)**:**actor policy π**(单 episode 内选动作,**LLM 权重 θ 冻结**)+ **adaptation policy f**(每 episode 后看历史 H_k 产出更新后的 actor)。**只走 prompt 轴**:\(π_{k+1}=f(π_k,H_k)\) 通过**重写 actor 的 system prompt ρ** 实现(θ 全程冻结,改 ρ 是唯一行为改变机制)→ 免测试时梯度,且把问题变成"可被 meta-training 优化的自然语言生成任务"。
+  1. **TTL 形式化(§3.1)**：每个任务实例 g 是有限步 POMDP；一次 **TTL session = K 个连续 episode** \(ξ_g=(τ_1,…,τ_K)\),**每 episode 后环境重置**(所以跨回合的进步只能来自 agent 内部的适应,而非环境状态延续)。打分用 **W-AUC**(Eq.1):\(Σ_k w_k·J(τ_k) / Σ_k w_k·J_max(g)\),**权重 \(w_k=k\)**(后期 episode 权重更大,奖励"持续改进")。
+  2. **两个策略(§3.2)**:**actor policy \(π\)**(单 episode 内选动作,**LLM 权重 θ 冻结**)+ **adaptation policy f**(每 episode 后看历史 \(H_k\) 产出更新后的 actor)。**只走 prompt 轴**:\(π_{k+1}=f(π_k,H_k)\) 通过**重写 actor 的 system prompt ρ** 实现(\(θ\) 全程冻结,改 ρ 是唯一行为改变机制)→ 免测试时梯度,且把问题变成"可被 meta-training 优化的自然语言生成任务"。
   3. **Meta-Agent = 可学习的适应策略(§3.2)**:把 f 实例化成**另一个由 meta-prompt ϕ 支配的 LLM**:\(ρ_{k+1} ∼ f_ϕ(·|ρ_k, H_k)\)(Eq.3)。**ϕ 完全决定适应策略**——meta-agent 关注过去经验的哪些方面、怎么诊断失败、产出什么形式的指导。**可学习的就是 ϕ 本身**。
-  4. **内层 RUNTTL(Algorithm 1)**:给定 ϕ 和任务 g,跑 K 个 episode:每 episode 用当前 actor prompt ρ_k 执行 → 若未到 K,meta-agent ADAPT(ϕ, 历史) 重写出 ρ_{k+1} → 返回 session ξ。
-  5. **外层进化 meta-training(§3.3, Algorithm 2)**:目标 \(ϕ* = argmax_ϕ E_{g∼D_train}[W-AUC(ξ_g^ϕ)]\)(Eq.4)。流程:从**专家池**采父代 ϕ_parent + 采训练任务 g → 跑 TTL → **proposer LLM 读 session 反思、提候选 ϕ_candidate** → **本地验证**(同任务上 W-AUC 是否更优,不优则丢)→ **全局验证**(在所有验证任务上跑,对每个它刷新最佳分的任务,替换该任务的专家)→ 预算耗尽后 **SELECTEXPERT**(选平均验证分最高的专家;跨任务 reward 尺度差异大时用 per-task z-score 归一,防易任务主导)。
-  6. **测试(§3.3)**:ϕ* 冻结,zero-shot 部署到 held-out 任务,meta-agent 照常 episode 间重写 actor prompt,但 ϕ* 不再变。
+  4. **内层 RUNTTL(Algorithm 1)**:给定 ϕ 和任务 g,跑 K 个 episode:每 episode 用当前 actor prompt \(ρ_k\) 执行 → 若未到 K,meta-agent \(\text{ADAPT}(ϕ, 历史)\) 重写出 \(ρ_{k+1}\) → 返回 session ξ。
+  5. **外层进化 meta-training(§3.3, Algorithm 2)**:目标 \(ϕ* = argmax_ϕ E_{g∼D_train}[W-AUC(ξ_g^ϕ)]\)(Eq.4)。流程:从**专家池**采父代 \(ϕ_{parent}\) + 采训练任务 g → 跑 TTL → **proposer LLM 读 session 反思、提候选 \(ϕ_{candidate}\)** → **本地验证**(同任务上 W-AUC 是否更优,不优则丢)→ **全局验证**(在所有验证任务上跑,对每个它刷新最佳分的任务,替换该任务的专家)→ 预算耗尽后 **SELECTEXPERT**(选平均验证分最高的专家;跨任务 reward 尺度差异大时用 per-task z-score 归一,防易任务主导)。
+  6. **测试(§3.3)**:\(ϕ^*\) 冻结,zero-shot 部署到 held-out 任务,meta-agent 照常 episode 间重写 actor prompt,但 \(ϕ^*\) 不再变。
 - **逐组件必要性**：
   - **Naive baseline(同 actor-meta-agent 架构但 ϕ 未 meta-train)** 是关键对照——它隔离了"meta-training 这一步"的贡献。Tables 1-4 显示 META-TTL 在所有 backbone 上稳超 Naive(Jericho ID GPT-5:Naive 50.4 → META-TTL 110.8)。
-  - **W-AUC 权重 w_k=k**:必要(否则不奖励持续改进);Fig 3 的"学习曲线持续上升"正是 W-AUC 设计意图的可视化。
+  - **W-AUC 权重 \(w_k=k\)**:必要(否则不奖励持续改进);Fig 3 的"学习曲线持续上升"正是 W-AUC 设计意图的可视化。
   - **专家池(per-task tracking)**:必要——§4.4/Appendix D 显示**早期迭代会把环境特定知识硬编进 meta-prompt**(单任务强、跨任务差);随着跨任务验证压力,适应策略**自发 factor 成"任务无关招式 + 条件激活的事实库"** → 这个分解是泛化的机制根源。
   - 【推断:正文未对"进化搜索 vs 其他外层优化器(如 RL/贝叶斯)"做对照消融,故"进化是否最优"未验;依据:正文只与手工/Naive baseline 比,外层固定为进化搜索。】
 - **关键机制直觉**：核心直觉是"**与其让一个通用 LLM 临场即兴反思,不如先离线把'怎么反思才有效'这套学习算法用自然语言写好、调好,再套上去**"。meta-prompt ϕ* 就像一本"如何从失败中学习的方法论手册",由进化搜索从任务表现中自动写成;因为是自然语言,它**可读、可移植**,且**自动分解出"通用方法论 + 按需激活的领域知识"**(避免把领域知识写死导致不泛化)。
@@ -37,15 +37,15 @@
   - **模型**:actor 全程 = frozen **Gemini-3-Flash**;meta-agent backbone 三选一各自独立 meta-train:**Gemini-3-Flash / GLM-5 / GPT-5**。baseline:Static(无适应)、Reflexion、Memory Agent(EvoTest 的)、**Naive**(架构同但 ϕ 未训)。
   - **支撑核心主张的关键实验 = Tables 1-4 + Fig 3**:**(RQ1)** Jericho ID 大幅提升(GPT-5 W-AUC 0.18→0.41;平均分 50.4→110.8,~120%);WebArena-Lite ID 提升较小但全 backbone 正向(GLM-5 +0.09 W-AUC)。**(RQ2 OOD)** Jericho 三个 held-out 全 backbone 正向(GPT-5 avg 0.23→0.28),含最难的 Zork3;WebArena OOD 增益集中在 Shopping-Admin(与 ID Shopping 结构相似),Reddit(结构迥异)迁移有限。**(RQ3)** Fig 3:META-TTL 在六个 Jericho 游戏上**学习曲线明显更稳更上扬**(Detective 上 Naive 首次反馈把分从 114→89 弄砸,META-TTL 同一步 117→319,2.7×)。
   - **诚实的负面/边界**:【原文】**WebArena 增益远小于 Jericho**,作者归因于**奖励粒度**——Jericho 稠密 per-action reward 给进化搜索细粒度信号;WebArena 二元完成信号使 session 轨迹几乎全 0 或全 1,外层搜索 landscape 粗糙。Zork3 上所有方法都退步(TTL 本身难),但 META-TTL 仍比 Naive 高。
-  - **baseline 公平吗**【推断】:【原文】actor 统一 frozen Gemini-3-Flash,Naive 用同架构,**较公平地隔离了 meta-training 的贡献**。隐患:① **proposer/meta-agent 都用强模型(GPT-5 等)**,部分增益可能来自强 meta-agent 的即兴能力而非 ϕ* 本身——但 Naive(同强模型、未训 ϕ)对照已大体控住此点;② benchmark 仅 2 个、任务数有限(每 benchmark 3 ID 域),进化搜索的 generalization 强度样本量偏小。
+  - **baseline 公平吗**【推断】:【原文】actor 统一 frozen Gemini-3-Flash,Naive 用同架构,**较公平地隔离了 meta-training 的贡献**。隐患:① **proposer/meta-agent 都用强模型(GPT-5 等)**,部分增益可能来自强 meta-agent 的即兴能力而非 \(ϕ^*\) 本身——但 Naive(同强模型、未训 \(ϕ\))对照已大体控住此点;② benchmark 仅 2 个、任务数有限(每 benchmark 3 ID 域),进化搜索的 generalization 强度样本量偏小。
 - **假设与失效边界**：
   - 【原文】**外层进化搜索强烈依赖内层评分信号的粒度**:稠密 reward(Jericho)下有效,**稀疏/二元 reward(WebArena)下搜索 landscape 粗糙、增益骤减** —— 这是显式的失效边界。
   - 【原文 §3.1】**每 episode 后环境重置**,故方法只适用于"同任务可反复重试、跨回合靠 agent 内部适应"的设定;不适用于"环境状态延续/不可重置"的真实在线场景。
-  - 【原文】适应只走 **prompt 轴(θ 冻结)** → 行为改变受限于"system prompt 重写能表达的范围";需要参数级能力变化的适应不在范围内。
+  - 【原文】适应只走 **prompt 轴(\(θ\) 冻结)** → 行为改变受限于"system prompt 重写能表达的范围";需要参数级能力变化的适应不在范围内。
   - 【推断】ϕ* 的可移植性虽跨 Gemini/GLM/GPT 验证,但**都是强 frontier 模型**;弱模型当 meta-agent 能否执行这套"自然语言学习算法"未验。依据:三 backbone 均为 frontier 级。
   - 【推断】**与"探索-巩固"的隐忧**:meta-prompt 把"领域知识"做成"条件激活事实库",但**没有防遗忘/防巩固坏经验的机制**——若某次 session 学到错误启发式并被进化保留,可能复现 misevolution 式问题(本文未测安全)。依据:§4.4 factorization 描述 + 无安全实验。
 - **祛魅总结**：
-  - **真贡献(硬货)**：① **把 TTL 显式形式化为"在适应策略上的 meta-learning"**,并清晰区分 actor policy(回合内) vs adaptation policy(回合间)——概念干净且有启发;② **bi-level(内 TTL + 外进化)+ W-AUC + GEPA 式专家池** 的具体可操作框架;③ **完全免梯度、prompt 空间**——产出**可读、可移植的"自然语言学习算法"**(ϕ*),跨 backbone 无需重训,这是相对 LAMER/MR-Search/LSE(都要微调权重)的实在差异;④ **RQ3 的涌现发现**:meta-training 自发把适应策略 factor 成"任务无关招式(显式信用分配 / 知识抽取巩固 / 探索-利用平衡)+ 条件事实库",且这些招式跨 benchmark 一致出现 → 说明"有效适应"确是可学习的通用过程。
+  - **真贡献(硬货)**：① **把 TTL 显式形式化为"在适应策略上的 meta-learning"**,并清晰区分 actor policy(回合内) vs adaptation policy(回合间)——概念干净且有启发;② **bi-level(内 TTL + 外进化)+ W-AUC + GEPA 式专家池** 的具体可操作框架;③ **完全免梯度、prompt 空间**——产出**可读、可移植的"自然语言学习算法"**(\(ϕ^*\)),跨 backbone 无需重训,这是相对 LAMER/MR-Search/LSE(都要微调权重)的实在差异;④ **RQ3 的涌现发现**:meta-training 自发把适应策略 factor 成"任务无关招式(显式信用分配 / 知识抽取巩固 / 探索-利用平衡)+ 条件事实库",且这些招式跨 benchmark 一致出现 → 说明"有效适应"确是可学习的通用过程。
   - **包装/营销成分**【推断】:① "learnable adaptation policy"听起来很重,**实际落地就是"进化优化一段 meta-prompt"**——本质是 prompt 进化(PromptBreeder/GEPA 家族)在"跨回合适应规则"这个特定对象上的应用;② **WebArena 增益小**(~15% 且 OOD 主要靠结构相似的 Shopping-Admin)暴露方法对稠密 reward 的依赖,"consistently outperforms"在稀疏 reward 下偏弱;③ 缺"进化 vs 其他外层优化器"的消融,"进化搜索"的必要性未单独验证。
   - 作者**较诚实**:明确讨论 Jericho/WebArena 增益差异的奖励粒度成因、报告 Zork3 上 TTL 本身的困难、Reddit OOD 迁移失败(可信度加分)【推断】。
 
@@ -55,7 +55,7 @@
 
 | 学什么信号 | 改什么 | 何时改 | 免梯度? | 记忆-技能生命周期 | 防遗忘机制 |
 |---|---|---|---|---|---|
-| **环境 reward(内层 W-AUC = 加权学习曲线下面积,后期 episode 权重更大,奖励持续改进);外层用其引导进化** | **两层:外层改"适应策略"= meta-prompt ϕ(进化搜索);内层 meta-agent 每 episode 改 actor 的 system prompt ρ(θ 全程冻结)** | **外层=离线/批量(meta-training 跨任务进化);内层=在线 per-episode(测试时回合间重写 prompt)** | **是(纯免梯度)**:外层进化搜索 + 内层 prompt 重写,无任何梯度;产出可移植文本工件 | **以 prompt/文本为载体:经验 H_k→meta-agent 反思→写入更新后的 ρ;"技能/知识"被 factor 进 ϕ*(任务无关招式 + 条件激活事实库),按 episode 日志确认环境才激活相应知识** | **几乎无显式防遗忘**:ϕ* 训练后冻结(不会在测试时漂移,算一种被动稳定);但**无机制防止"进化阶段把坏适应策略保留"或"测试时 prompt 重写丢旧能力"**;无几何/merging/KL/隔离。**与"探索-巩固"相关的是:emergent 招式里含"知识抽取与巩固""探索-利用平衡",但未做成防遗忘保证** |
+| **环境 reward(内层 W-AUC = 加权学习曲线下面积,后期 episode 权重更大,奖励持续改进);外层用其引导进化** | **两层:外层改"适应策略"= meta-prompt \(ϕ\)(进化搜索);内层 meta-agent 每 episode 改 actor 的 system prompt \(ρ\)(\(θ\) 全程冻结)** | **外层=离线/批量(meta-training 跨任务进化);内层=在线 per-episode(测试时回合间重写 prompt)** | **是(纯免梯度)**:外层进化搜索 + 内层 prompt 重写,无任何梯度;产出可移植文本工件 | **以 prompt/文本为载体:经验 \(H_k\)→meta-agent 反思→写入更新后的 ρ;"技能/知识"被 factor 进 \(ϕ^*\)(任务无关招式 + 条件激活事实库),按 episode 日志确认环境才激活相应知识** | **几乎无显式防遗忘**:\(ϕ^*\) 训练后冻结(不会在测试时漂移,算一种被动稳定);但**无机制防止"进化阶段把坏适应策略保留"或"测试时 prompt 重写丢旧能力"**;无几何/merging/KL/隔离。**与"探索-巩固"相关的是:emergent 招式里含"知识抽取与巩固""探索-利用平衡",但未做成防遗忘保证** |
 
 - ⑦ **开源代码 + 框架/harness**：**有开源**——【原文 Abstract 明写】**Code is available at https://github.com/zzzlou/meta-ttl**。**框架/harness**:**无标准 RL 训练框架(veRL/TRL 等)——因全程免梯度**;实现是**自研的双层进化搜索 harness**(内层 RUNTTL + 外层 Algorithm 2 进化 meta-training + GEPA 式专家池),底层调用 frontier LLM API(Gemini-3-Flash/GLM-5/GPT-5)作 actor/meta-agent/proposer,环境用 Jericho + WebArena-Lite 官方接口。〔待核:仓库具体内容以实际 clone 为准;按 PDF,代码链接确凿、属"有代码"。〕
 - 💰 **资源/成本与可扩展性**：【原文未给精确 GPU/API 成本】**无梯度训练 → 无 GPU 显存压力**,但**外层进化搜索要反复跑完整 TTL session(每 session 5-6 episode × 多任务 × 多迭代)→ 大量 frontier-LLM API 调用**,这是主要成本(尤其 proposer/meta-agent 用 GPT-5)。可扩展性:产出 ϕ* 是**一段可移植 prompt**,**部署成本极低**(只多一个 meta-agent 调用);跨 backbone 复用省再训。瓶颈:稀疏 reward 环境下搜索效率低(WebArena 教训)。

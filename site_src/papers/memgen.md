@@ -6,7 +6,7 @@
 
 ## ══ 第一层:一眼看懂 ══
 
-- 🟦 **TL;DR**:现有 agent 记忆要么改参数(会忘旧知识),要么外挂检索库(只能在任务开头把检索到的文本粗暴拼到 prompt 上,和推理"两张皮")。MemGen 让一个**冻结**的主模型(reasoner)正常逐 token 生成,旁边挂两个小 LoRA:① **memory trigger**——边生成边看主模型的隐藏状态,判断"此刻要不要回忆一下";② **memory weaver**——一旦触发,就以当前隐藏状态为"刺激",生成一小段(K 个,K∈{2,4,8,…32})**潜在记忆 token**(不是文字,是隐向量),prepend 进隐藏状态,主模型接着往下写。新经验只灌进 weaver 的参数,主模型一字不改 → 不遗忘。八/九个 benchmark 上比外部记忆(ExpeL/AWM)高最多 38.22%,比 GRPO 高最多 13.44%。
+- 🟦 **TL;DR**:现有 agent 记忆要么改参数(会忘旧知识),要么外挂检索库(只能在任务开头把检索到的文本粗暴拼到 prompt 上,和推理"两张皮")。MemGen 让一个**冻结**的主模型(reasoner)正常逐 token 生成,旁边挂两个小 LoRA:① **memory trigger**——边生成边看主模型的隐藏状态,判断"此刻要不要回忆一下";② **memory weaver**——一旦触发,就以当前隐藏状态为"刺激",生成一小段(K 个,\(K\in\{2,4,8,\dots32\}\))**潜在记忆 token**(不是文字,是隐向量),prepend 进隐藏状态,主模型接着往下写。新经验只灌进 weaver 的参数,主模型一字不改 → 不遗忘。八/九个 benchmark 上比外部记忆(ExpeL/AWM)高最多 38.22%,比 GRPO 高最多 13.44%。
 
 - **最巧的一步**:**"冻结 reasoner + 把所有经验内化进 weaver 这个独立 LoRA"** 这一步抽掉就垮。它是整篇的承重墙——正因为主干不动,(a) 不灾难性遗忘、(b) 与任意 backbone / 任意优化算法(SFT/GRPO/DAPO)解耦、(c) 记忆以隐向量形式"织入"而非文本"拼接"才同时成立。若改成直接更新主模型,就退化成普通 agent tuning,失去全部卖点。
 
@@ -30,14 +30,14 @@
 ## ══ 第三层:怎么做 + 靠不靠谱 ══
 
 - **方法流水线**(§4,Eq.4–6):
-  1. 输入状态 s_t,冻结 reasoner π_θ 逐 token 自回归生成 action,产出隐藏状态序列 H_{t,<j}。
-  2. **trigger**(LoRA)在**句界**(逗号/句号等 delimiter 集 D,"sentence-granularity"激活,省算力)读 H 算 invoke 概率 p_j = σ(T(H)),采样 d_j∈{INVOKE,SKIP}(Eq.7)。
-  3. 若 SKIP → 正常生成;若 INVOKE → 暂停,**weaver**(另一 LoRA)以同一 H 为刺激生成定长 K 的潜在记忆矩阵 M_t∈R^{K×d}(Eq.5)。
-  4. M_t **prepend** 到当前隐藏状态,π_θ 在"被记忆增强"的上下文上恢复生成(Eq.6)。
-  5. 输出 → 执行 → 环境转移 → reward R(τ)。这一"生成-监控-触发-编织-重整"循环把线性生成升级成"与记忆的递归对话",全程不改 π_θ。
+  1. 输入状态 \(s_t\),冻结 reasoner \(\pi_\theta\) 逐 token 自回归生成 action,产出隐藏状态序列 \(H_{t,<j}\)。
+  2. **trigger**(LoRA)在**句界**(逗号/句号等 delimiter 集 D,"sentence-granularity"激活,省算力)读 H 算 invoke 概率 \(p_j = \sigma(T(H))\),采样 \(d_j\in\{\text{INVOKE},\text{SKIP}\}\)(Eq.7)。
+  3. 若 SKIP → 正常生成;若 INVOKE → 暂停,**weaver**(另一 LoRA)以同一 H 为刺激生成定长 K 的潜在记忆矩阵 \(M_t\in\mathbb{R}^{K\times d}\)(Eq.5)。
+  4. \(M_t\) **prepend** 到当前隐藏状态,\(\pi_\theta\) 在"被记忆增强"的上下文上恢复生成(Eq.6)。
+  5. 输出 → 执行 → 环境转移 → reward \(R(\tau)\)。这一"生成-监控-触发-编织-重整"循环把线性生成升级成"与记忆的递归对话",全程不改 \(\pi_\theta\)。
 - **逐组件必要性**:
   - **trigger**:做了消融(Table 5),证明"专门训练的 trigger"对有效插记忆是必要的(随机/总插都更差)。训练用 **规则 RL** + **reward-adaptive penalty**(Eq.8–9):对高奖励轨迹算平均激活率 p̄,惩罚超过 p̄ 的多余激活 → 学"稀疏但关键"地插记忆。
-  - **weaver**:经验**只**灌进它的 LoRA 参数(Eq.10 梯度仅传到 θ′),保证 π_θ 通用能力不动。与优化算法解耦 → 两变体 MemGen_SFT / MemGen_GRPO(Table 6 比较不同训练范式)。
+  - **weaver**:经验**只**灌进它的 LoRA 参数(Eq.10 梯度仅传到 \(\theta'\)),保证 \(\pi_\theta\) 通用能力不动。与优化算法解耦 → 两变体 MemGen_SFT / MemGen_GRPO(Table 6 比较不同训练范式)。
   - **K(潜在记忆长度)**:敏感性分析(Fig.6 左),K 从 2→32 性能单调上升(记忆容量变大)。
   - **检索融合**(§4.3 + Appx E):触发时任意检索系统(MemoryBank/ExpeL)给文本记忆,与 H 合并喂进 weaver → latent,可融合内外知识。
 - **关键机制直觉**:weaver 像海马体"把回忆碎片巩固成记忆"——M_t 不是逐字复述旧内容,是**经 weaver 过滤整合的选择性重构**;prepend 隐向量 = 在不改主干权重的前提下,临时给主模型"递一张小抄",小抄内容由学到的经验决定。
@@ -48,7 +48,7 @@
   - **"看着强但没答核心问题"风险**【推断】:K 越大越好(Fig.6 左)说明增益部分来自"额外计算/容量",而非纯"记忆质量"——但作者用 efficiency 分析(§D.3.3,延迟仅为 vanilla 的 24%–94%)部分回应了"是不是靠堆算力"。依据:K 单调性 + 延迟数据并列出现。
 - **假设与失效边界**:
   - 【原文】trigger 只在 delimiter 句界激活(牺牲 token 级最细粒度换效率);weaver 默认靠自身参数知识(外检索为可选)。
-  - 【推断】潜在记忆**人不可读**(§5.3,t-SNE + 强制解码出 "[…]SOC"/"_pick" 之类非自然串)→ **可解释性/可审计性弱**,跨 backbone 迁移这套 latent 是否成立未验(weaver 绑特定 π_θ 的隐空间)。依据:Fig.5 解码结果 + weaver instantiation 绑 π_θ 隐维 d_model。
+  - 【推断】潜在记忆**人不可读**(§5.3,t-SNE + 强制解码出 "[…]SOC"/"_pick" 之类非自然串)→ **可解释性/可审计性弱**,跨 backbone 迁移这套 latent 是否成立未验(weaver 绑特定 \(\pi_\theta\) 的隐空间)。依据:Fig.5 解码结果 + weaver instantiation 绑 \(\pi_\theta\) 隐维 \(d_{model}\)。
   - 【推断】"自发涌现 planning/procedural/working 三类记忆"是**事后干预归因**(post-hoc,移除某 cluster 看 failure mode 变化,Fig.6 右),属相关性证据,非因果训练目标。依据:§5.3 明说 "without external guidance" + 用 failure-mode taxonomy 事后映射。
 - **祛魅总结**:
   - 真贡献(硬货):① 冻结主干 + 双 LoRA(trigger/weaver)的**解耦记忆架构**,工程上干净、抗遗忘有数据支撑;② **token/句界级、生成式**的记忆插入机制 + reward-adaptive penalty 学稀疏触发;③ 与优化算法/backbone 解耦,SFT/GRPO 两条都验。
@@ -72,7 +72,7 @@
 
 - 🔭 **开放问题/未来方向**:
   - 【原文】§6:迈向能"流动、重构式智能"的自进化 agent;FAQ 暗示后续释出 GRPO 多轮训练栈。
-  - 【推断】(a) 潜在记忆可解释/可审计化(当前不可读);(b) weaver 与特定 π_θ 隐空间解绑、做到跨 backbone 复用;(c) 把"何时触发"从句界粒度推到真·token 级而不爆算力;(d) 显式淘汰/遗忘机制(目前只靠冻结被动抗遗忘,记忆库无界增长问题未解)。依据:正文 K 单调性、latent 不可读、weaver instantiation 绑 d_model。
+  - 【推断】(a) 潜在记忆可解释/可审计化(当前不可读);(b) weaver 与特定 \(\pi_\theta\) 隐空间解绑、做到跨 backbone 复用;(c) 把"何时触发"从句界粒度推到真·token 级而不爆算力;(d) 显式淘汰/遗忘机制(目前只靠冻结被动抗遗忘,记忆库无界增长问题未解)。依据:正文 K 单调性、latent 不可读、weaver instantiation 绑 \(d_{model}\)。
 
 - 🖼 **关键图 top-2**:
 

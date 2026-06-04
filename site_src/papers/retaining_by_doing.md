@@ -29,19 +29,19 @@
 - **方法/论证流水线(这是"分析型"论文,流水线=论证链而非系统模块)**:
   1. **实测对比(§2)**:三任务 IFEval/MMLU/Countdown 为 target;非 target 含 MATH + 两个安全集(WildJailbreak/WildGuardTest)。对每个 target 训完,测所有其它任务的掉分。比较 SFT(用 Llama-3.3-70B 生成的答案当标签)/ Self-SFT(用初始模型自己的正确答案)/ RL(GRPO,verifiable reward 0/1)。指标:target gain ∆g↑、non-target drop ∆d↓。→ 结论:RL gain 相当但 drop 显著更小(图2)。
   2. **理论直觉(§3)**:把 LM 后训练抽象成"旧模式(先验知识)+新模式(目标任务)"的双峰高斯混合。SFT=最小化 forward KL(mode-covering),RL=最小化 reverse KL(mode-seeking)。**单峰训练策略**下 forward KL 忘得少(图4,drop 0.64<0.70);**双峰训练策略**下反转——reverse KL 把"新峰"平移去贴目标、几乎不动"旧峰"(图5,reverse KL drop 0.03 vs forward 高 LR 0.12),因为 mode-seeking 不需要从旧峰搬概率质量。
-  3. **归因消融(§4.1)**:GRPO 与 SFT 有三处不同——(i) on-policy 数据 (ii) KL 正则 (iii) advantage 估计。**去掉(ii)**:β=0 的 GRPO 与 β=0.05 的 drop-gain 几乎一样(图6,除 Llama+IFEval)。**去掉(iii)**:用无 advantage 的 REINFORCE,gain 落后 GRPO 但 drop 同样低(表1)。→ 排除 (ii)(iii),坐实 (i) on-policy 数据是主因。
+  3. **归因消融(§4.1)**:GRPO 与 SFT 有三处不同——(i) on-policy 数据 (ii) KL 正则 (iii) advantage 估计。**去掉(ii)**:\(β=0\) 的 GRPO 与 \(β=0.05\) 的 drop-gain 几乎一样(图6,除 Llama+IFEval)。**去掉(iii)**:用无 advantage 的 REINFORCE,gain 落后 GRPO 但 drop 同样低(表1)。→ 排除 (ii)(iii),坐实 (i) on-policy 数据是主因。
   4. **on-policy 程度(§4.2)**:Self-SFT(只从初始策略采=最 off-policy 的"自采")仍严重遗忘;**Iterative-SFT**(每 round/epoch 开头用当前模型重采)→ target 准确率≥SFT 且几乎不忘(图7);"直接拿 RL 过程中产生的数据做 SFT"也减遗忘(附录A.4.1)。→ "近似 on-policy"够用。
 
 - **逐组件必要性**:
   - *双峰假设*:是"反转"的命门——单峰下结论相反(图4 vs 图5 直接对照),作者明确这是 reconcile 常识与实验的关键。✔有对照(玩具实验)。
-  - *KL 正则非必要*:图6 消融(β=0 vs 0.05)。✔有消融。
+  - *KL 正则非必要*:图6 消融(\(β=0\) vs 0.05)。✔有消融。
   - *advantage 非必要*:表1 REINFORCE vs GRPO。✔有消融。
   - *"每 epoch 重采"这一频率*:图7 对比 Iterative-SFT / Self-SFT / SFT,证明频率到"每 epoch"即够。✔有对照。但**"每 epoch"是不是最优频率、再稀疏会怎样**——原文未做更细的频率扫描。【推断:依据=§4.2 只给了 epoch 级一档】
 
-- **关键机制直觉**:核心式子是 KL-正则 RL 的最优策略 π*(y|x)=Z⁻¹·πθ₀(y|x)·exp(r/β),由此 JRL 等价于 −β·KL[πθ‖π*]\(reverse KL)。直觉:**reverse KL(RL)从"模型自己当前会说什么"(on-policy 采样)出发去抬高得分高的回答**,它只在"模型已有概率质量的地方"重新分配,于是**新峰就地长出/平移、旧峰基本不被触碰**;而 **forward KL(SFT)被外部标签(目标峰样本)牵着走**,为了覆盖目标峰会**从旧峰搬概率质量过去**,旧峰塌缩=遗忘。一句话:on-policy 让优化"锚在自己的分布上",改动局部化。【原文 §3.1+图1】
+- **关键机制直觉**:核心式子是 KL-正则 RL 的最优策略 \(π^*(y|x)=Z^{-1}·π_{θ_0}(y|x)·\exp(r/β)\),由此 \(J_{RL}\) 等价于 \(−β·KL[π_θ‖π^*]\)(reverse KL)。直觉:**reverse KL(RL)从"模型自己当前会说什么"(on-policy 采样)出发去抬高得分高的回答**,它只在"模型已有概率质量的地方"重新分配,于是**新峰就地长出/平移、旧峰基本不被触碰**;而 **forward KL(SFT)被外部标签(目标峰样本)牵着走**,为了覆盖目标峰会**从旧峰搬概率质量过去**,旧峰塌缩=遗忘。一句话:on-policy 让优化"锚在自己的分布上",改动局部化。【原文 §3.1+图1】
 
 - **实验与证据**:
-  - 数据集/设置:Llama-3.2-1B/3.1-8B-Instruct、Qwen-2.5-1.5B/7B-Instruct;target=IFEval/MMLU/Countdown,non-target=MATH+两安全集;RL 用 GRPO,reward∈{0,1};SFT 两变体(70B 标签 / 自采正确样本);均训 2 epoch。【原文 §2.2】
+  - 数据集/设置:Llama-3.2-1B/3.1-8B-Instruct、Qwen-2.5-1.5B/7B-Instruct;target=IFEval/MMLU/Countdown,non-target=MATH+两安全集;RL 用 GRPO,\(reward∈\{0,1\}\);SFT 两变体(70B 标签 / 自采正确样本);均训 2 epoch。【原文 §2.2】
   - **支撑核心主张的关键实验**:图2——RL 的 drop 普遍接近 0 甚至为负(几乎不忘),而 SFT/Self-SFT 在拿到相近 gain 时 drop 大得多。具体如 Countdown 上 Llama-8B:GRPO gain 60.4 / drop −0.5,SFT gain 25.5 / drop 36.4。MMLU 上 Llama-8B:GRPO gain 14.6 / drop −0.2,SFT gain 11.1 / drop 38.5。【原文 图2, 表1】
   - **最有说服力的对照**:表1(REINFORCE)+图6(无 KL)。它们直接砍掉两个"备择解释",把因逼到 on-policy 数据——这是全文最硬的归因证据。
   - **实用价值证据**:图7——Iterative-SFT 在 Qwen-1.5B/7B 的 IFEval/MMLU 上 target 准确率追平/超过 SFT,而相对 GRPO 的额外 drop 趋近 0;Self-SFT/SFT 则随 round 持续掉分。
@@ -55,7 +55,7 @@
   - 【推断】"近似 on-policy 够用"只验到 epoch 级与"二任务、2 epoch"规模;长跑持续学习(几十轮)下近似 on-policy 是否仍守得住,未测。依据=图7 仅到个位数 round。
 
 - **祛魅总结**:
-  - **真贡献(硬货)**:(a)把"RL<SFT 遗忘"从零散观察做成**跨族跨任务的稳定经验律**;(b)**归因实验设计漂亮**——用 β=0 的 GRPO 和 REINFORCE 两个对照,干净地排除 KL 正则与 advantage,把因锁定到 on-policy 数据(并直接反驳并发工作 Lai et al.);(c)**Iterative-SFT 的实用降本结论**最接地气:不必上 RL,SFT 变近似 on-policy 即可。
+  - **真贡献(硬货)**:(a)把"RL<SFT 遗忘"从零散观察做成**跨族跨任务的稳定经验律**;(b)**归因实验设计漂亮**——用 \(β=0\) 的 GRPO 和 REINFORCE 两个对照,干净地排除 KL 正则与 advantage,把因锁定到 on-policy 数据(并直接反驳并发工作 Lai et al.);(c)**Iterative-SFT 的实用降本结论**最接地气:不必上 RL,SFT 变近似 on-policy 即可。
   - **包装/可能高估**:§3 的"理论"其实是**一维高斯数值模拟**,"mode-seeking 因 on-policy"更像有据直觉而非证明;标题"Retaining by Doing"的"Doing"=用自己生成的数据,措辞略宏大。【推断:依据=§3 方法 + §6 自承需理论】
   - **可能低估**:对"持续学习 agent"的含义其实很重(作者在 §6 点到:从其他 agent 或互联网拿来的 off-policy 经验更危险,自己生成的 on-policy 经验更安全)——这条对"经验流式自进化 agent 怎么选数据"是强指导,但正文只一句带过,未做 agent 场景实验。【推断:依据=§6 结尾两句】
 
@@ -73,7 +73,7 @@
 
 - 🎯 **对"探索-巩固(探索→巩固)"idea 对标**:**强支撑(理论背书)+ 可借组件**。本文几乎是 **OPD/on-policy 蒸馏"为什么能在学新东西时不毁旧能力"的直接理论/经验背书**:on-policy 数据 → mode-seeking → 旧峰(先验/已有技能)不被搬空。对标 TSRD:
   - *支撑*:把"巩固阶段用 on-policy(模型自采)数据蒸馏"从经验上证成"防遗忘的安全选择",而 off-policy(教师强标 / 其它 agent 经验)更危险——这正契合"用 MTP foresight 引导、但回灌的训练信号要保持 on-policy"的设计直觉。
-  - *可借组件*:**Iterative-SFT(每 epoch 重采)** 是一个现成、便宜的"近似 on-policy 巩固"配方,可直接用作 TSRD 巩固阶段的数据生成策略;**β=0 / REINFORCE 对照** 是干净的归因实验范式,可复用于验证"是哪个零件在防遗忘"。
+  - *可借组件*:**Iterative-SFT(每 epoch 重采)** 是一个现成、便宜的"近似 on-policy 巩固"配方,可直接用作 TSRD 巩固阶段的数据生成策略;**\(β=0\) / REINFORCE 对照** 是干净的归因实验范式,可复用于验证"是哪个零件在防遗忘"。
   - *缺口/区别*:本文只到"二任务、≤8B、2 epoch"的参数级遗忘,**没碰记忆/技能库、没碰 MTP、没碰多轮持续学习的累计漂移**;且"on-policy=因"是直觉+经验非定理。TSRD 若把"探索-巩固"做成长跑流式,还需自己验证近似 on-policy 在多轮下的稳定性。【推断:依据=§6 limitations + 项目 project_core_idea/OPD 主线】
 
 - 🔭 **开放问题/未来方向**:

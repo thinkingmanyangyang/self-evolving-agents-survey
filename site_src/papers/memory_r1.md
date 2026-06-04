@@ -23,7 +23,7 @@
 ══ 第三层：怎么做 + 靠不靠谱 ══
 
 - **方法流水线（两阶段,对应 Fig 2）**：
-  1. **Stage 1 记忆构建(蓝)**：每个对话 turn,LLM 抽取&摘要值得记的信息 → 从记忆库检索相关条目 → **Memory Manager** 把(抽取信息 x, 当前记忆库 M_old)映射到一个操作 o∈{ADD,UPDATE,DELETE,NOOP} + 更新内容 m(Eq.1),应用到记忆库。
+  1. **Stage 1 记忆构建(蓝)**：每个对话 turn,LLM 抽取&摘要值得记的信息 → 从记忆库检索相关条目 → **Memory Manager** 把(抽取信息 \(x\), 当前记忆库 \(M_{old}\))映射到一个操作 \(o\in\{\text{ADD},\text{UPDATE},\text{DELETE},\text{NOOP}\}\) + 更新内容 \(m\)(Eq.1),应用到记忆库。
   2. **Stage 2 答案生成(绿)**：对每个问题,用相似度 RAG 检索 **60 条**候选记忆 → **Answer Agent** 用"Memory Distillation 策略"先从 60 条里挑出最相关的几条(过滤噪声)→ 再推理作答(Eq.5)。
   3. **训练**：两个 agent **分开训练**(为在稀疏奖励下保稳定),都用 PPO 或 GRPO,奖励是下游答案 EM(Eq.4)。
 - **关键机制/公式直觉**：
@@ -61,7 +61,7 @@
 | **环境 reward**(下游 QA 的 Exact-Match 对错,outcome-driven,无操作标签) | **模型参数**(用 RL 微调两个 LLM agent 的权重:Memory Manager + Answer Agent) | **离线批量训练**(用 152 训练 QA 做 PPO/GRPO);**推理时**记忆操作是 per-turn/per-episode 在线执行,但参数不再变 | **否**(纯梯度 RL:PPO/GRPO 更新策略参数) | 写入=Memory Manager 选 ADD/UPDATE/DELETE/NOOP→检索=相似度 RAG 取 60 条→蒸馏=Answer Agent 选相关子集→淘汰=学到的 DELETE;无显式遗忘曲线 | **学习层面**=GRPO/PPO 的 **KL 正则**防策略漂移参考模型;**记忆层面**=训练出的 UPDATE/合并倾向("consolidation over fragmentation")减少误删,但**无几何共识/merging/参数隔离**类防遗忘 |
 
 - ⑦ **开源代码 + 框架/harness**：**框架=veRL/VERL(HybridFlow, Sheng et al. 2025)**——【原文 附录 D 明写】"Reinforcement learning fine-tuning is performed using PPO and GRPO **within the VERL framework**"。**代码仓库:本 PDF 正文/参考文献中未给出任何 GitHub/项目链接**(全文唯一 URL 是 AIOS docs 参考)〔待核:Memory-R1 业内有公开实现,但严格按"不靠印象、PDF 没写就不编"原则,代码 URL 待 P3 用 WebSearch 快照核验后补〕。
-- 💰 **资源/成本与可扩展性**：【原文 附录 D】主实验 **4× NVIDIA H100(80GB)**;Qwen-2.5-14B 需 **8 GPU**;total batch 128 / micro-batch 2 per GPU;max prompt/response = 4096/2048 token。PPO:actor lr 1e-6、critic lr 1e-5、constant warmup;GRPO 只更新 actor(grouped return normalization)。训练 temp τ=1.0(鼓励探索),评测 greedy τ=0。**数据极省:仅 152 训练 QA**。Fig 8 显示蒸馏比 reranker 延迟更低(推理成本优势)。
+- 💰 **资源/成本与可扩展性**：【原文 附录 D】主实验 **4× NVIDIA H100(80GB)**;Qwen-2.5-14B 需 **8 GPU**;total batch 128 / micro-batch 2 per GPU;max prompt/response = 4096/2048 token。PPO:actor lr 1e-6、critic lr 1e-5、constant warmup;GRPO 只更新 actor(grouped return normalization)。训练 temp \(\tau=1.0\)(鼓励探索),评测 greedy \(\tau=0\)。**数据极省:仅 152 训练 QA**。Fig 8 显示蒸馏比 reranker 延迟更低(推理成本优势)。
 - 🎯 **对"探索-巩固"idea 对标** [light]：**支撑 + 可借组件**。支撑:它直接证明"**用下游 outcome 奖励就能学会何时巩固(UPDATE/合并) vs 何时丢弃(DELETE)**"——这正是"巩固"机制的一个可训练实例,且 GRPO 是本项目熟悉的算法族。可借组件:① **outcome-driven EM 奖励训练"记忆操作/路径选择"**的范式,可迁移到"训练 agent 决定何时该接管/改写推理路径";② **两阶段分训(Manager 冻结训 Answer / 反之)以稳住稀疏奖励**——对本项目 path-recovery 单点接管的稀疏信号训练有借鉴;③ Answer Agent 的"先蒸馏后推理"= 一种"巩固时先筛信号再用"的结构。缺口:它**不碰"探索"(无主动探索新路径)**、不做 test-time 自进化(训练后参数冻结),也未与 MTP/前瞻探测结合。
 - 🔭 **开放问题/未来方向**：【原文 Limitations】① 扩到**多模态**记忆;② 把 Manager+Answer 的分训改成**端到端多 agent RL**(简化训练 + 更丰富协调)。【推断】③ 让记忆**操作集/检索数本身可学**(目前写死);④ 把 EM 奖励换成更鲁棒的语义奖励以支持长答案场景(Table 2 已暴露 EM 局限);⑤ 在含 adversarial 子集上验证鲁棒性。
 

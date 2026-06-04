@@ -17,7 +17,7 @@
 ══ 第三层:怎么做 + 靠不靠谱 ══
 - **方法流水线/系统骨架**(§III Fig 1):三独立组件——**CLI**(`skilldex-cli` npm 包,Node 20+/TS/Commander/simple-git/Zod)+ **Registry**(Hono on Vercel Edge + Supabase/PostgreSQL,存 skill/skillset 元数据 + auth + 搜索 + 安装计数)+ **Web**(Next.js,registry 浏览 + 文档)。关键:**CLI 与 MCP server 共享同一套 `core/` 模块**(install/validate/resolve/manifest),所以两个接口行为不会发散。安装流:registry name / git URL / local path 三种源 → 都汇到 `installFromPath` → 校验 + 拷进目标 scope + 原子更新 manifest。
 - **逐组件必要性**(本篇**无消融**,以下为作者论证 + 推断):
-  · **格式合规打分(8 检查,Table I)**:【原文 §V】缺 frontmatter=25 分致命判 0 并停;name 10 / description 10 / description≥30 词 10 / SKILL.md≤500 行 15 / 仅允许子目录 10 / 引用资源存在 15 / 资源在正确子目录 5。没它就退回"只看 install count"。**关键诚实点**:作者反复声明(§V-A)"格式合规**明确不是功能质量度量**——语法完美的技能可能没用,低分技能可能很有价值",且此免责声明在任何显示分数处都醒目出现。
+  · **格式合规打分(8 检查,Table I)**:【原文 §V】缺 frontmatter=25 分致命判 0 并停;name 10 / description 10 / \(description\geq30\) 词 10 / SKILL.md≤500 行 15 / 仅允许子目录 10 / 引用资源存在 15 / 资源在正确子目录 5。没它就退回"只看 install count"。**关键诚实点**:作者反复声明(§V-A)"格式合规**明确不是功能质量度量**——语法完美的技能可能没用,低分技能可能很有价值",且此免责声明在任何显示分数处都醒目出现。
   · **三层 scope(§IV)**:解决"把所有装的技能塞进每个 session"在 scale 上失败(context window 与技能数成正比、无关 description 也吃 token、同名冲突无解析策略);local-first 让低 scope 覆盖高 scope。没它则 context 爆炸 + 同名无解。
   · **skillset(§VIII)**:核心特征是 skillset 根的共享 `assets/`,被各成员技能用相对路径引用(例:developer skillset 的 `commit-conventions.md` 被 conventional-commit 和 changelog-gen 共用,**装机时绑同一词表**,保证一个技能写的 commit 必能被另一个解析)。安装 skillset 是 orchestration(复用已有 installFromPath/installFromGitUrl),非新原语。
   · **建议 loop(§VI,human-in-loop)**:三阶段(读 README/package.json/已装技能→LLM 提技能清单→人逐条批/拒/改 scope);把"该有什么能力"与"怎么用"两个决策分开,对应"能力扩张前显式 checkpoint"。**当前局限**:Phase 3 批准后**不自动安装**,要手动 `skillpm install`(§XII 列为待办)。

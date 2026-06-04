@@ -17,7 +17,7 @@
 ══ 第三层:怎么做 + 靠不靠谱 ══
 - **方法流水线**(§3,三段):
   · **Stage1 仓库结构分析(§3.1)**:用 **repo2AI** 把完整目录层级 + 文件内容转成 Markdown 表示,给 LLM 提取 agent 提供上下文;定位中心编排脚本(`generate_video.py`)和配置目录(\(task_generator/prompts_raw\)),产出层级图(核心执行脚本及其 I/O、配置文件、辅助模块、文档示例),用于区分"可复用程序模式"vs"仓库特异实现"。
-  · **Stage2 语义技能识别(§3.2,two-stage ranking)**:**dense retrieval 阶段**——用 trained bi-encoder 把任务描述 {T_k} 和代码模块 {M_j} 编码成向量,算 cosine 相似度,留 top-K 候选;**binary ranking 阶段**——cross-encoder 联合编码 task-module 对出细粒度相关分,只有超过校准阈值 τ 的模块才晋级。提取准则四条:recurrence(多上下文复现)、verification(代码可用/有文档/无关键 bug)、non-obviousness(需领域专长/调试才能发现)、generalizability(可参数化/适配)。
+  · **Stage2 语义技能识别(§3.2,two-stage ranking)**:**dense retrieval 阶段**——用 trained bi-encoder 把任务描述 \(\{T_k\}\) 和代码模块 \(\{M_j\}\) 编码成向量,算 cosine 相似度,留 top-K 候选;**binary ranking 阶段**——cross-encoder 联合编码 task-module 对出细粒度相关分,只有超过校准阈值 τ 的模块才晋级。提取准则四条:recurrence(多上下文复现)、verification(代码可用/有文档/无关键 bug)、non-obviousness(需领域专长/调试才能发现)、generalizability(可参数化/适配)。
   · **Stage3 翻译成 SKILL.md(§3.3)**:**frontmatter 生成**(name/description/version/trigger/dependencies)+ **instruction drafting**(L2 写成 LLM 可消费的程序指引:分步工作流 + 决策点 + 错误处理 + 最佳实践 + 集成模式,**避开仓库特异实现细节**)+ **asset bundling**(scripts//references//templates/,重构去掉硬编码路径/API key/仓库特异依赖保可移植)。
   · **安全治理(§7,four-stage G1-G4)**:G1 静态分析(扫 eval()/exec()、未授权网络调用、破坏性文件操作、混淆代码)→ G2 语义分类(LLM 查指令-目的对齐、无隐藏 prompt injection、元数据与实现一致)→ G3 沙箱执行(网络隔离 + 受限文件 + 资源监控)→ G4 权限校验(对 allowed-tools manifest);技能按审计运行表现晋升 trust tier。
 - **逐组件必要性**:**本篇无任何消融实验**。各组件必要性仅靠定性论证:repo2AI 结构化提供上下文、two-stage retrieval 区分可复用 vs 特异、四准则当筛选闸门、G1-G4 防恶意代码。【推断:无 ablation 证明哪个组件贡献多少;four-stage 安全流水线甚至是"we propose"的提议性框架,未见实测漏洞拦截率】。
