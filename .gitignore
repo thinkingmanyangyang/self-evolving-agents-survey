@@ -1,0 +1,12 @@
+# 中间产物 / 重资源,不发布(前导 / 锚定仓库根目录,避免误伤 site_src/figures)
+/_build/
+/_state/
+/site/
+/analysis/
+__pycache__/
+*.pyc
+_tmp*
+*.tmp
+*.pdf
+*.log
+# 保留(会被提交):mkdocs.yml, site_src/(含 site_src/figures), SURVEY_self_evolving_agents.md, PLAN.md, .github/

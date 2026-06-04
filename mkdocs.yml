@@ -1,0 +1,40 @@
+site_name: 自进化 / 持续学习 LLM Agent · 论文精读手册
+# TODO: replace USER/REPO after the GitHub repo URL is known
+site_url: https://thinkingmanyangyang.github.io/self-evolving-agents-survey/
+docs_dir: site_src
+site_dir: site
+use_directory_urls: false
+theme:
+  name: material
+  language: zh
+  palette:
+    - scheme: default
+      toggle: { icon: material/weather-night, name: 暗色 }
+    - scheme: slate
+      toggle: { icon: material/weather-sunny, name: 亮色 }
+  features: [navigation.tracking, navigation.top, search.suggest, search.highlight, content.code.copy, toc.follow]
+plugins:
+  - search
+  - glightbox
+markdown_extensions:
+  - tables
+  - admonition
+  - toc: { permalink: true }
+  - pymdownx.betterem: { smart_enable: underscore }
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.arithmatex: { generic: true }
+extra_javascript:
+  - js/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-svg.js
+nav:
+  - 总览: index.md
+  - 'L1 · 免梯度 / test-time 持续学习': l1.md
+  - 'L2 · Agent Memory(记忆底座)': l2.md
+  - 'L3 · 经验 → 技能演进(Skill)': l3.md
+  - 'L4 · 反思 / 自我纠错 / 经验内化': l4.md
+  - 'L5 · 巩固 / 防遗忘 / 知识更新': l5.md
+  - 'L6 · Agent Harness / 脚手架自进化': l6.md
+  - 'L7 · 综述 / 评测 / 安全治理': l7.md
+  - 对「探索-巩固」的借鉴清单: borrow.md
+  - 结论: conclusion.md
